@@ -1,0 +1,224 @@
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { CircleAlertIcon } from "lucide-react";
+import {
+  type LedgerRecord,
+  type RecordType,
+  categoriesFor,
+  cents,
+  dateKey,
+  fromCents,
+  money,
+  parseDate,
+} from "@/src/lib/ledger";
+import type { RecordDraft } from "@/src/hooks/use-ledger";
+
+interface Props {
+  open: boolean;
+  record: LedgerRecord | null;
+  onOpenChange: (open: boolean) => void;
+  onSave: (draft: RecordDraft) => void;
+}
+
+interface FormState {
+  type: RecordType;
+  amount: string;
+  category: string;
+  date: string;
+  note: string;
+}
+
+function initialState(record: LedgerRecord | null): FormState {
+  if (record) {
+    return {
+      type: record.type,
+      amount: String(record.amount),
+      category: record.category,
+      date: record.date,
+      note: record.note ?? "",
+    };
+  }
+  return { type: "expense", amount: "", category: categoriesFor("expense")[0], date: dateKey(new Date()), note: "" };
+}
+
+export function RecordDialog({ open, record, onOpenChange, onSave }: Props) {
+  const [form, setForm] = useState<FormState>(() => initialState(record));
+  const [errors, setErrors] = useState<{ amount?: string; date?: string }>({});
+
+  useEffect(() => {
+    if (open) {
+      setForm(initialState(record));
+      setErrors({});
+    }
+  }, [open, record]);
+
+  const patch = (next: Partial<FormState>) => setForm((current) => ({ ...current, ...next }));
+
+  function changeType(type: RecordType) {
+    const list = categoriesFor(type);
+    patch({ type, category: list.includes(form.category) ? form.category : list[0] });
+  }
+
+  function submit() {
+    const raw = form.amount.replace(/[，,\s¥]/g, "");
+    const value = Number(raw);
+    const next: { amount?: string; date?: string } = {};
+
+    if (raw === "" || Number.isNaN(value) || value <= 0) next.amount = "请输入大于 0 的金额";
+    else if (value > 999999) next.amount = "单笔金额请不超过 ¥999,999";
+    else if (fromCents(cents(value)) !== value) next.amount = "金额最多保留两位小数";
+
+    const date = parseDate(form.date);
+    if (!date) next.date = "请选择日期";
+    else if (date.getFullYear() < 2000 || date.getFullYear() > 2100) next.date = "年份请在 2000 – 2100 之间";
+
+    setErrors(next);
+    if (Object.keys(next).length > 0) return;
+
+    onSave({
+      type: form.type,
+      amount: fromCents(cents(value)),
+      category: form.category,
+      date: form.date,
+      note: form.note.trim().slice(0, 40),
+    });
+    onOpenChange(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="gap-5 sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{record ? "编辑这笔" : "记一笔"}</DialogTitle>
+          <DialogDescription>金额与日期会立即重算本月统计；数据只写在本机浏览器。</DialogDescription>
+        </DialogHeader>
+
+        <form
+          noValidate
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submit();
+          }}
+        >
+          <RadioGroup
+            value={form.type}
+            onValueChange={(value) => changeType(value as RecordType)}
+            aria-label="收支类型"
+            className="grid grid-cols-2 gap-1 rounded-full border border-border bg-muted p-1"
+          >
+            {(["expense", "income"] as const).map((type) => (
+              <Label
+                key={type}
+                className={[
+                  "flex cursor-pointer justify-center gap-2 rounded-full px-3 py-2 text-sm font-medium",
+                  form.type === type ? "bg-accent text-accent-foreground" : "text-muted-foreground",
+                ].join(" ")}
+              >
+                <RadioGroupItem value={type} className="sr-only" />
+                {type === "expense" ? "支出" : "收入"}
+              </Label>
+            ))}
+          </RadioGroup>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="record-amount">金额（元）</Label>
+            <Input
+              id="record-amount"
+              inputMode="decimal"
+              autoComplete="off"
+              placeholder="0.00"
+              value={form.amount}
+              aria-invalid={errors.amount ? true : undefined}
+              aria-describedby={errors.amount ? "record-amount-error" : undefined}
+              onChange={(event) => patch({ amount: event.target.value })}
+            />
+            <FieldError id="record-amount-error" message={errors.amount} />
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="record-category">分类</Label>
+            <Select value={form.category} onValueChange={(value) => patch({ category: value })}>
+              <SelectTrigger id="record-category" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {categoriesFor(form.type).map((category) => (
+                  <SelectItem key={category} value={category}>
+                    {category}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="record-date">日期</Label>
+            <Input
+              id="record-date"
+              type="date"
+              value={form.date}
+              aria-invalid={errors.date ? true : undefined}
+              aria-describedby={errors.date ? "record-date-error" : undefined}
+              onChange={(event) => patch({ date: event.target.value })}
+            />
+            <FieldError id="record-date-error" message={errors.date} />
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label htmlFor="record-note">
+              备注 <span className="font-normal text-faint">（选填，最多 40 字）</span>
+            </Label>
+            <Input
+              id="record-note"
+              maxLength={40}
+              autoComplete="off"
+              placeholder="例如：楼下便利店"
+              value={form.note}
+              onChange={(event) => patch({ note: event.target.value })}
+            />
+          </div>
+
+          <DialogFooter className="mt-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              取消
+            </Button>
+            <Button type="submit">保存</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FieldError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null;
+  return (
+    <p id={id} role="alert" className="flex items-center gap-1.5 text-[13px] text-negative">
+      <CircleAlertIcon className="size-4" aria-hidden="true" />
+      {message}
+    </p>
+  );
+}
+
+export function describeRecord(record: LedgerRecord): string {
+  return `${record.category} ${money(record.amount)}（${record.date}）`;
+}

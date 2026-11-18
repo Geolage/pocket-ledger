@@ -1,0 +1,223 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "../vendor/shadcn-tailwind-4.13.0.css";
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility scrollbar-gutter-stable {
+  scrollbar-gutter: stable;
+}
+
+/* ============================================================
+   主题令牌
+   一套主题 = 一个 :root[data-theme="…"] 区块。
+   新增主题：复制区块改值，再到 src/lib/themes.ts 登记一条。
+   组件只允许消费这些变量（含 Tailwind 的 bg-card / text-positive 等）。
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+  --radius: 0.875rem;
+}
+
+/* L1 淡青瓷（默认）：中性偏暖，最贴近「温暖轻松」 */
+:root,
+:root[data-theme="celadon"] {
+  --background: #f5f8f6;
+  --foreground: #21332f;
+  --card: #ffffff;
+  --card-foreground: #21332f;
+  --popover: #ffffff;
+  --popover-foreground: #21332f;
+  --primary: #3e7e71;
+  --primary-foreground: #ffffff;
+  --secondary: #e3f0eb;
+  --secondary-foreground: #2f6d61;
+  --muted: #eef3f1;
+  --muted-foreground: #54675e;
+  --accent: #e3f0eb;
+  --accent-foreground: #2f6d61;
+  --destructive: #a34f44;
+  --border: #e2eae6;
+  --input: #cfdcd6;
+  --ring: #2f6d61;
+
+  --positive: #3b7a5b;
+  --negative: #a34f44;
+  --warning: #7e6229;
+  --faint: #7d8f87;
+  --surface-soft: #fafcfb;
+
+  --cat-1: #4e8f82;
+  --cat-2: #a9d3c8;
+  --cat-3: #cfe0e2;
+  --cat-4: #e8dcc8;
+  --cat-5: #7fb3a4;
+  --cat-6: #c9b79a;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #21332f;
+  --sidebar-primary: #3e7e71;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e3f0eb;
+  --sidebar-accent-foreground: #2f6d61;
+  --sidebar-border: #e2eae6;
+  --sidebar-ring: #2f6d61;
+}
+
+/* L2 淡雾蓝：偏冷克制，报表视角 */
+:root[data-theme="mist"] {
+  --background: #f4f7fa;
+  --foreground: #1f303b;
+  --card: #ffffff;
+  --card-foreground: #1f303b;
+  --popover: #ffffff;
+  --popover-foreground: #1f303b;
+  --primary: #457693;
+  --primary-foreground: #ffffff;
+  --secondary: #e1ecf3;
+  --secondary-foreground: #35657f;
+  --muted: #eaf0f5;
+  --muted-foreground: #54697a;
+  --accent: #e1ecf3;
+  --accent-foreground: #35657f;
+  --destructive: #a34f44;
+  --border: #dfe7ee;
+  --input: #c9d8e3;
+  --ring: #35657f;
+
+  --positive: #2f7a6b;
+  --negative: #a34f44;
+  --warning: #7a6127;
+  --faint: #7b8d9b;
+  --surface-soft: #f9fbfd;
+
+  --cat-1: #55839b;
+  --cat-2: #a6c6d8;
+  --cat-3: #c7dbe4;
+  --cat-4: #e7dccb;
+  --cat-5: #7fa6bc;
+  --cat-6: #c2ae8f;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1f303b;
+  --sidebar-primary: #457693;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e1ecf3;
+  --sidebar-accent-foreground: #35657f;
+  --sidebar-border: #dfe7ee;
+  --sidebar-ring: #35657f;
+}
+
+/* L3 淡影灰绿：冷暖不偏，饱和度最低 */
+:root[data-theme="sage"] {
+  --background: #f6f7f5;
+  --foreground: #26302b;
+  --card: #ffffff;
+  --card-foreground: #26302b;
+  --popover: #ffffff;
+  --popover-foreground: #26302b;
+  --primary: #527e70;
+  --primary-foreground: #ffffff;
+  --secondary: #e4ede8;
+  --secondary-foreground: #3f6b5e;
+  --muted: #eef1ed;
+  --muted-foreground: #57685e;
+  --accent: #e4ede8;
+  --accent-foreground: #3f6b5e;
+  --destructive: #a85744;
+  --border: #e1e6e0;
+  --input: #cdd6cf;
+  --ring: #3f6b5e;
+
+  --positive: #3d7d5c;
+  --negative: #a85744;
+  --warning: #7c6a2e;
+  --faint: #7f8d84;
+  --surface-soft: #fafbf9;
+
+  --cat-1: #5e8e80;
+  --cat-2: #b4d0c4;
+  --cat-3: #d8e1d8;
+  --cat-4: #eadfc9;
+  --cat-5: #86a99b;
+  --cat-6: #c4b593;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #26302b;
+  --sidebar-primary: #527e70;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e4ede8;
+  --sidebar-accent-foreground: #3f6b5e;
+  --sidebar-border: #e1e6e0;
+  --sidebar-ring: #3f6b5e;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-warning: var(--warning);
+  --color-faint: var(--faint);
+  --color-surface-soft: var(--surface-soft);
+  --color-cat-1: var(--cat-1);
+  --color-cat-2: var(--cat-2);
+  --color-cat-3: var(--cat-3);
+  --color-cat-4: var(--cat-4);
+  --color-cat-5: var(--cat-5);
+  --color-cat-6: var(--cat-6);
+  --color-chart-1: var(--cat-1);
+  --color-chart-2: var(--cat-2);
+  --color-chart-3: var(--cat-3);
+  --color-chart-4: var(--cat-4);
+  --color-chart-5: var(--cat-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
