@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as ledger from "../src/lib/ledger.ts";
+import { faviconHref } from "../src/lib/themes.ts";
 
 function record(overrides = {}) {
   return {
@@ -170,4 +171,12 @@ test("isValidRecord rejects incomplete or impossible records", () => {
   assert.equal(ledger.isValidRecord(record({ category: "" })), false);
   assert.equal(ledger.isValidRecord(record({ type: "transfer" })), false);
   assert.equal(ledger.isValidRecord(null), false);
+});
+
+test("favicon href encodes the selected theme colors", () => {
+  const href = faviconHref("#3E7E71", "#A9D3C8");
+  assert.ok(href.startsWith("data:image/svg+xml,"));
+  assert.ok(href.includes("%233E7E71"));
+  assert.ok(href.includes("%23A9D3C8"));
+  assert.ok(!href.includes("<"));
 });

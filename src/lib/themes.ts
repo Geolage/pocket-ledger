@@ -37,11 +37,28 @@ export function isThemeId(value: unknown): value is ThemeId {
   return typeof value === "string" && THEMES.some((theme) => theme.id === value);
 }
 
+export function faviconHref(primary: string, accent: string): string {
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>` +
+    `<rect width='32' height='32' rx='8' fill='${primary}'/>` +
+    `<path d='M9 8.5C9 7.12 10.12 6 11.5 6H23a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H11.5C10.12 26 9 24.88 9 23.5z' fill='#fff'/>` +
+    `<path d='M9 8.5C9 7.12 10.12 6 11.5 6v20C10.12 26 9 24.88 9 23.5z' fill='${accent}'/>` +
+    `<path d='M14 11h6M14 15h6M14 19h4' stroke='${primary}' stroke-width='2.2' stroke-linecap='round'/>` +
+    `</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
 export function applyTheme(id: ThemeId): void {
   document.documentElement.dataset.theme = id;
-  const background = getComputedStyle(document.documentElement)
-    .getPropertyValue("--background")
-    .trim();
+
+  const styles = getComputedStyle(document.documentElement);
+  const background = styles.getPropertyValue("--background").trim();
+  const primary = styles.getPropertyValue("--primary").trim();
+  const accent = styles.getPropertyValue("--cat-2").trim();
+
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta && background) meta.setAttribute("content", background);
+
+  const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+  if (favicon && primary && accent) favicon.href = faviconHref(primary, accent);
 }

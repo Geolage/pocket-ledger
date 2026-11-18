@@ -124,13 +124,16 @@ test("设置分类预算后出现超支提示，取消预算后恢复", async ({
 });
 
 test("主题切换立即生效并在刷新后保留", async ({ page }) => {
+  const favicon = page.locator('link[rel="icon"]');
   await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
   await page.getByText("L2 淡雾蓝", { exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "mist");
+  await expect(favicon).toHaveAttribute("href", /%23457693/);
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "mist");
+  await expect(favicon).toHaveAttribute("href", /%23457693/);
 });
 
 test("清空数据后显示空态，恢复演示数据可重新载入", async ({ page }) => {

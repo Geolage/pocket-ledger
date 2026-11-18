@@ -17,6 +17,7 @@ Pocket Ledger is a local-first personal income and expense tracker. Record incom
 - Filter records by type, category, and keyword
 - Set category budgets, track progress, and receive over-budget warnings
 - Switch among three light blue-green themes: L1 Celadon, L2 Mist, and L3 Sage
+- Favicon and browser theme-color metadata adapt to the selected theme
 - Restore demo data, clear local data, and migrate the legacy storage key automatically
 - Responsive desktop and mobile layouts
 
@@ -47,7 +48,7 @@ npm run preview
 ## Tests
 
 ```sh
-npm run test:unit   # Domain calculations and validation: 10 tests
+npm run test:unit   # Domain calculations and validation: 11 tests
 npm run test:e2e    # Desktop and mobile interactions: 11 tests
 npm test            # Run both suites
 ```
