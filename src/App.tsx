@@ -10,12 +10,12 @@ import { ConfirmDialog, type ConfirmRequest } from "@/src/components/confirm-dia
 import { DailyTrend } from "@/src/components/daily-trend";
 import { MobileNav } from "@/src/components/mobile-nav";
 import { OverBudgetNotice } from "@/src/components/over-budget-notice";
-import { RecordDialog, describeRecord } from "@/src/components/record-dialog";
+import { RecordDialog } from "@/src/components/record-dialog";
 import { SettingsSection } from "@/src/components/settings-section";
 import { SummaryCards } from "@/src/components/summary-cards";
 import { useActiveSection } from "@/src/hooks/use-active-section";
 import { useLedger, type RecordDraft } from "@/src/hooks/use-ledger";
-import { type LedgerRecord, monthLabel } from "@/src/lib/ledger";
+import { describeRecord, type LedgerRecord, monthLabel } from "@/src/lib/ledger";
 
 export default function App() {
   const ledger = useLedger();
@@ -151,7 +151,8 @@ export default function App() {
           <SettingsSection ledger={ledger} onResetDemo={askResetDemo} onWipe={askWipe} />
 
           <footer className="mt-auto border-t border-border pt-4 text-xs text-faint">
-            小账本 Pocket Ledger · 本地演示账本。所有金额、商户与人物均为虚构数据，仅用于展示界面与交互。
+            小账本 Pocket Ledger ·
+            本地演示账本。所有金额、商户与人物均为虚构数据，仅用于展示界面与交互。
           </footer>
         </main>
 
@@ -163,6 +164,7 @@ export default function App() {
       </div>
 
       <RecordDialog
+        key={recordDialog.open ? (recordDialog.record?.id ?? "new") : "closed"}
         open={recordDialog.open}
         record={recordDialog.record}
         onOpenChange={(open) => setRecordDialog((current) => ({ ...current, open }))}

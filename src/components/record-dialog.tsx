@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -26,7 +26,6 @@ import {
   cents,
   dateKey,
   fromCents,
-  money,
   parseDate,
 } from "@/src/lib/ledger";
 import type { RecordDraft } from "@/src/hooks/use-ledger";
@@ -56,19 +55,18 @@ function initialState(record: LedgerRecord | null): FormState {
       note: record.note ?? "",
     };
   }
-  return { type: "expense", amount: "", category: categoriesFor("expense")[0], date: dateKey(new Date()), note: "" };
+  return {
+    type: "expense",
+    amount: "",
+    category: categoriesFor("expense")[0],
+    date: dateKey(new Date()),
+    note: "",
+  };
 }
 
 export function RecordDialog({ open, record, onOpenChange, onSave }: Props) {
   const [form, setForm] = useState<FormState>(() => initialState(record));
   const [errors, setErrors] = useState<{ amount?: string; date?: string }>({});
-
-  useEffect(() => {
-    if (open) {
-      setForm(initialState(record));
-      setErrors({});
-    }
-  }, [open, record]);
 
   const patch = (next: Partial<FormState>) => setForm((current) => ({ ...current, ...next }));
 
@@ -88,7 +86,8 @@ export function RecordDialog({ open, record, onOpenChange, onSave }: Props) {
 
     const date = parseDate(form.date);
     if (!date) next.date = "请选择日期";
-    else if (date.getFullYear() < 2000 || date.getFullYear() > 2100) next.date = "年份请在 2000 – 2100 之间";
+    else if (date.getFullYear() < 2000 || date.getFullYear() > 2100)
+      next.date = "年份请在 2000 – 2100 之间";
 
     setErrors(next);
     if (Object.keys(next).length > 0) return;
@@ -108,7 +107,9 @@ export function RecordDialog({ open, record, onOpenChange, onSave }: Props) {
       <DialogContent className="gap-5 sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{record ? "编辑这笔" : "记一笔"}</DialogTitle>
-          <DialogDescription>金额与日期会立即重算本月统计；数据只写在本机浏览器。</DialogDescription>
+          <DialogDescription>
+            金额与日期会立即重算本月统计；数据只写在本机浏览器。
+          </DialogDescription>
         </DialogHeader>
 
         <form
@@ -217,8 +218,4 @@ function FieldError({ id, message }: { id: string; message?: string }) {
       {message}
     </p>
   );
-}
-
-export function describeRecord(record: LedgerRecord): string {
-  return `${record.category} ${money(record.amount)}（${record.date}）`;
 }

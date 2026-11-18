@@ -15,18 +15,33 @@ export interface LedgerRecord {
 export type Budgets = Record<string, number>;
 
 export const EXPENSE_CATEGORIES: string[] = [
-  "餐饮", "交通", "购物", "居住", "娱乐", "医疗", "教育", "其他",
+  "餐饮",
+  "交通",
+  "购物",
+  "居住",
+  "娱乐",
+  "医疗",
+  "教育",
+  "其他",
 ];
 
-export const INCOME_CATEGORIES: string[] = [
-  "工资", "副业", "奖金", "理财", "其他收入",
-];
+export const INCOME_CATEGORIES: string[] = ["工资", "副业", "奖金", "理财", "其他收入"];
 
 /** 分类 → 主题令牌。换主题时图表颜色自动跟随。 */
 export const CATEGORY_COLOR: Record<string, string> = {
-  餐饮: "var(--cat-1)", 交通: "var(--cat-2)", 购物: "var(--cat-3)", 居住: "var(--cat-4)",
-  娱乐: "var(--cat-5)", 医疗: "var(--cat-6)", 教育: "var(--cat-1)", 其他: "var(--cat-2)",
-  工资: "var(--cat-1)", 副业: "var(--cat-5)", 奖金: "var(--cat-4)", 理财: "var(--cat-3)", 其他收入: "var(--cat-2)",
+  餐饮: "var(--cat-1)",
+  交通: "var(--cat-2)",
+  购物: "var(--cat-3)",
+  居住: "var(--cat-4)",
+  娱乐: "var(--cat-5)",
+  医疗: "var(--cat-6)",
+  教育: "var(--cat-1)",
+  其他: "var(--cat-2)",
+  工资: "var(--cat-1)",
+  副业: "var(--cat-5)",
+  奖金: "var(--cat-4)",
+  理财: "var(--cat-3)",
+  其他收入: "var(--cat-2)",
 };
 
 export const DEFAULT_COLOR = "var(--cat-3)";
@@ -75,7 +90,8 @@ export function parseDate(value: string): Date | null {
   const day = Number(match[3]);
   const date = new Date(year, month - 1, day);
   if (Number.isNaN(date.getTime())) return null;
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day)
+    return null;
   return date;
 }
 
@@ -101,7 +117,11 @@ export function shiftMonth(view: Date, delta: number): Date {
 
 /* ---------------- 派生计算 ---------------- */
 
-export function recordsOfMonth(records: LedgerRecord[], year: number, month: number): LedgerRecord[] {
+export function recordsOfMonth(
+  records: LedgerRecord[],
+  year: number,
+  month: number,
+): LedgerRecord[] {
   return records.filter((r) => {
     const date = parseDate(r.date);
     return date !== null && isSameMonth(date, year, month);
@@ -145,7 +165,10 @@ export interface CategorySlice {
   share: number; // 0–1
 }
 
-export function expensesByCategory(records: LedgerRecord[]): { total: number; slices: CategorySlice[] } {
+export function expensesByCategory(records: LedgerRecord[]): {
+  total: number;
+  slices: CategorySlice[];
+} {
   const totals = new Map<string, number>();
   let total = 0;
   for (const record of records) {
@@ -259,4 +282,8 @@ export function isValidRecord(value: unknown): value is LedgerRecord {
 export function newId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function describeRecord(record: LedgerRecord): string {
+  return `${record.category} ${money(record.amount)}（${record.date}）`;
 }

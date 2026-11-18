@@ -50,6 +50,8 @@ export function useLedger() {
   // 单一写入点：任何状态变化都落盘，失败时如实提示而不是假装保存成功。
   useEffect(() => {
     const ok = saveState({ records, budgets, theme });
+    // The write result is an external-system outcome, so surface it in the UI.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStorageAvailable(ok);
   }, [records, budgets, theme]);
 
@@ -59,7 +61,10 @@ export function useLedger() {
   const monthRecords = useMemo(() => recordsOfMonth(records, year, month), [records, year, month]);
   const summary = useMemo(() => summarize(monthRecords), [monthRecords]);
   const ring = useMemo(() => expensesByCategory(monthRecords), [monthRecords]);
-  const trend = useMemo(() => dailyExpenses(monthRecords, year, month), [monthRecords, year, month]);
+  const trend = useMemo(
+    () => dailyExpenses(monthRecords, year, month),
+    [monthRecords, year, month],
+  );
   const budget = useMemo(() => budgetSummary(monthRecords, budgets), [monthRecords, budgets]);
 
   const visibleRecords = useMemo(() => {
@@ -68,7 +73,8 @@ export function useLedger() {
       .filter((record) => {
         if (filters.type !== "all" && record.type !== filters.type) return false;
         if (filters.category !== "all" && record.category !== filters.category) return false;
-        if (keyword && !`${record.note} ${record.category}`.toLowerCase().includes(keyword)) return false;
+        if (keyword && !`${record.note} ${record.category}`.toLowerCase().includes(keyword))
+          return false;
         return true;
       })
       .sort((a, b) => {
@@ -94,9 +100,7 @@ export function useLedger() {
   const updateRecord = useCallback((id: string, draft: RecordDraft) => {
     setRecords((current) =>
       current.map((record) =>
-        record.id === id
-          ? { ...record, ...draft, amount: fromCents(cents(draft.amount)) }
-          : record,
+        record.id === id ? { ...record, ...draft, amount: fromCents(cents(draft.amount)) } : record,
       ),
     );
     setView(startOfMonth(new Date(`${draft.date}T00:00:00`)));
