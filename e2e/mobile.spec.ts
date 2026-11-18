@@ -18,13 +18,17 @@ test("手机底部导航记一笔并切换到预算区块", async ({ page }) => 
   await nav.getByRole("link", { name: "预算" }).click();
   await expect(page).toHaveURL(/#budget$/);
   await expect(page.getByRole("heading", { name: "分类预算" })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
 });
 
 test("320px 窄屏不产生横向溢出", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
   await expect(page.getByRole("navigation", { name: "移动端导航" })).toBeVisible();
 });

@@ -22,7 +22,14 @@ export function MobileNav({ active, onNavigate, onAdd }: Props) {
       className="sticky bottom-0 z-30 grid grid-cols-5 items-center gap-1 border-t border-border bg-card px-2 pt-1.5 pb-[max(6px,env(safe-area-inset-bottom))] lg:hidden"
     >
       {ITEMS.slice(0, 2).map(({ id, label, icon: Icon }) => (
-        <NavLink key={id} id={id} label={label} active={active} onNavigate={onNavigate} icon={Icon} />
+        <NavLink
+          key={id}
+          id={id}
+          label={label}
+          active={active}
+          onNavigate={onNavigate}
+          icon={Icon}
+        />
       ))}
 
       <button
@@ -35,7 +42,14 @@ export function MobileNav({ active, onNavigate, onAdd }: Props) {
       </button>
 
       {ITEMS.slice(2).map(({ id, label, icon: Icon }) => (
-        <NavLink key={id} id={id} label={label} active={active} onNavigate={onNavigate} icon={Icon} />
+        <NavLink
+          key={id}
+          id={id}
+          label={label}
+          active={active}
+          onNavigate={onNavigate}
+          icon={Icon}
+        />
       ))}
     </nav>
   );

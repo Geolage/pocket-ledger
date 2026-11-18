@@ -11,9 +11,24 @@ export interface ThemeOption {
 }
 
 export const THEMES: ThemeOption[] = [
-  { id: "celadon", name: "L1 淡青瓷", tagline: "中性偏暖，最贴近「温暖轻松」", swatches: ["#4E8F82", "#A9D3C8", "#E8DCC8"] },
-  { id: "mist", name: "L2 淡雾蓝", tagline: "偏冷克制，报表视角", swatches: ["#55839B", "#A6C6D8", "#E7DCCB"] },
-  { id: "sage", name: "L3 淡影灰绿", tagline: "冷暖不偏，最中性", swatches: ["#5E8E80", "#B4D0C4", "#EADFC9"] },
+  {
+    id: "celadon",
+    name: "L1 淡青瓷",
+    tagline: "中性偏暖，最贴近「温暖轻松」",
+    swatches: ["#4E8F82", "#A9D3C8", "#E8DCC8"],
+  },
+  {
+    id: "mist",
+    name: "L2 淡雾蓝",
+    tagline: "偏冷克制，报表视角",
+    swatches: ["#55839B", "#A6C6D8", "#E7DCCB"],
+  },
+  {
+    id: "sage",
+    name: "L3 淡影灰绿",
+    tagline: "冷暖不偏，最中性",
+    swatches: ["#5E8E80", "#B4D0C4", "#EADFC9"],
+  },
 ];
 
 export const DEFAULT_THEME: ThemeId = "celadon";

@@ -34,7 +34,8 @@ export function DailyTrend({ ledger }: Props) {
         <p className="text-xs text-muted-foreground tabular-nums">
           {max > 0 ? (
             <>
-              单日最高 <strong className="font-semibold">{money(max)}</strong>（{month + 1} 月 {peak.day} 日）
+              单日最高 <strong className="font-semibold">{money(max)}</strong>（{month + 1} 月{" "}
+              {peak.day} 日）
             </>
           ) : (
             "本月尚无支出"
@@ -70,10 +71,17 @@ export function DailyTrend({ ledger }: Props) {
           })}
         </div>
 
-        <div aria-hidden="true" className="mt-1.5 flex justify-between text-[11px] text-faint tabular-nums">
+        <div
+          aria-hidden="true"
+          className="mt-1.5 flex justify-between text-[11px] text-faint tabular-nums"
+        >
           <span>{month + 1}/1</span>
-          <span>{month + 1}/{Math.ceil(trend.length / 2)}</span>
-          <span>{month + 1}/{trend.length}</span>
+          <span>
+            {month + 1}/{Math.ceil(trend.length / 2)}
+          </span>
+          <span>
+            {month + 1}/{trend.length}
+          </span>
         </div>
       </CardContent>
     </Card>

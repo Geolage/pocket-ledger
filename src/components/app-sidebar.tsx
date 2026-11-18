@@ -37,7 +37,9 @@ export function AppSidebar({ ledger, active, onNavigate, className }: Props) {
         <span className="flex min-w-0 flex-col items-start gap-1">
           <span className="flex items-baseline gap-1.5">
             <span className="text-lg leading-none font-semibold tracking-tight">小账本</span>
-            <span className="text-[9px] font-medium tracking-[0.16em] text-faint uppercase">Pocket Ledger</span>
+            <span className="text-[9px] font-medium tracking-[0.16em] text-faint uppercase">
+              Pocket Ledger
+            </span>
           </span>
           <Badge variant="secondary" className="px-2 py-0.5 text-[11px]">
             演示账本

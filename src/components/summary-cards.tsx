@@ -47,7 +47,12 @@ export function SummaryCards({ ledger }: Props) {
       {cards.map((card) => (
         <Card key={card.label} className="gap-1 p-4 shadow-sm">
           <p className="text-[13px] font-medium text-muted-foreground">{card.label}</p>
-          <p className={cn("mt-1 text-[26px] leading-tight font-semibold tracking-tight tabular-nums", card.tone)}>
+          <p
+            className={cn(
+              "mt-1 text-[26px] leading-tight font-semibold tracking-tight tabular-nums",
+              card.tone,
+            )}
+          >
             {card.value}
           </p>
           <p className="text-xs text-faint tabular-nums">{card.foot}</p>

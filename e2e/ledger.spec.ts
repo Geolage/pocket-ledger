@@ -77,7 +77,10 @@ test("编辑与删除记录，删除前必须确认", async ({ page }) => {
   await expect(row).toBeVisible();
 
   await row.getByRole("button", { name: /^删除/ }).click();
-  await page.getByRole("dialog", { name: "确认删除？" }).getByRole("button", { name: "删除" }).click();
+  await page
+    .getByRole("dialog", { name: "确认删除？" })
+    .getByRole("button", { name: "删除" })
+    .click();
   await expect(page.getByText("已编辑晚餐")).toHaveCount(0);
 });
 
@@ -109,7 +112,9 @@ test("设置分类预算后出现超支提示，取消预算后恢复", async ({
   await budget.getByRole("button", { name: "保存预算" }).click();
 
   await expect(budget.getByText(/已超支/).first()).toBeVisible();
-  await expect(page.getByRole("status").filter({ hasText: "已超出预算" })).toContainText("餐饮 超出");
+  await expect(page.getByRole("status").filter({ hasText: "已超出预算" })).toContainText(
+    "餐饮 超出",
+  );
 
   await budget.getByRole("button", { name: "取消该分类预算" }).click();
   const confirm = page.getByRole("dialog", { name: "取消该分类预算？" });
@@ -132,11 +137,17 @@ test("清空数据后显示空态，恢复演示数据可重新载入", async ({
   await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
 
   await page.getByRole("button", { name: "清空所有数据" }).click();
-  await page.getByRole("dialog", { name: "清空所有数据？" }).getByRole("button", { name: "清空" }).click();
+  await page
+    .getByRole("dialog", { name: "清空所有数据？" })
+    .getByRole("button", { name: "清空" })
+    .click();
   await expect(page.getByText(/还没有记录/).first()).toBeVisible();
 
   await page.getByRole("button", { name: "恢复演示数据" }).click();
-  await page.getByRole("dialog", { name: "恢复演示数据？" }).getByRole("button", { name: "恢复演示" }).click();
+  await page
+    .getByRole("dialog", { name: "恢复演示数据？" })
+    .getByRole("button", { name: "恢复演示" })
+    .click();
   await expect(page.getByText(/显示 \d+ \/ \d+ 笔/)).toBeVisible();
   await expect(page.getByText(/显示 0 \/ 0 笔/)).toHaveCount(0);
 });

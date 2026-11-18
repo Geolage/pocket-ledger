@@ -111,7 +111,16 @@ function sanitizeBudgets(input: unknown): Budgets {
 /* ---------------- 演示数据（人物、商户、金额全部虚构） ---------------- */
 
 const NOTE_POOL: Record<string, string[]> = {
-  餐饮: ["巷口面馆", "楼下便利店", "社区超市买菜", "同事聚餐", "早餐豆浆", "水果摊", "外卖午餐", "咖啡"],
+  餐饮: [
+    "巷口面馆",
+    "楼下便利店",
+    "社区超市买菜",
+    "同事聚餐",
+    "早餐豆浆",
+    "水果摊",
+    "外卖午餐",
+    "咖啡",
+  ],
   交通: ["地铁通勤", "公交充值", "网约车", "共享单车月卡", "高铁票"],
   购物: ["换季衣物", "日用品补货", "线上超市", "耳机配件", "书籍", "洗护用品"],
   娱乐: ["电影票", "健身房次卡", "演出门票", "游戏充值", "展览"],
@@ -137,7 +146,12 @@ function pick<T>(random: () => number, list: T[]): T {
   return list[Math.floor(random() * list.length)];
 }
 
-function buildDemoMonth(random: () => number, year: number, month: number, partial: boolean): LedgerRecord[] {
+function buildDemoMonth(
+  random: () => number,
+  year: number,
+  month: number,
+  partial: boolean,
+): LedgerRecord[] {
   const out: LedgerRecord[] = [];
   const total = daysInMonth(year, month);
   const now = new Date();
@@ -178,13 +192,40 @@ function buildDemoMonth(random: () => number, year: number, month: number, parti
     const scale = partial ? lastDay / total : 1;
     const entries = Math.max(1, Math.round(count * scale * (0.8 + random() * 0.4)));
     for (let i = 0; i < entries; i += 1) {
-      add("expense", category, min + random() * (max - min), 1 + Math.floor(random() * total), pick(random, NOTE_POOL[category] ?? [""]));
+      add(
+        "expense",
+        category,
+        min + random() * (max - min),
+        1 + Math.floor(random() * total),
+        pick(random, NOTE_POOL[category] ?? [""]),
+      );
     }
   }
 
-  if (random() > 0.45) add("expense", "医疗", 28 + random() * 180, 1 + Math.floor(random() * total), pick(random, NOTE_POOL["医疗"]));
-  if (random() > 0.6) add("expense", "教育", 99 + random() * 300, 1 + Math.floor(random() * total), pick(random, NOTE_POOL["教育"]));
-  if (random() > 0.5) add("income", "副业", 480 + random() * 900, 1 + Math.floor(random() * total), pick(random, NOTE_POOL["副业"]));
+  if (random() > 0.45)
+    add(
+      "expense",
+      "医疗",
+      28 + random() * 180,
+      1 + Math.floor(random() * total),
+      pick(random, NOTE_POOL["医疗"]),
+    );
+  if (random() > 0.6)
+    add(
+      "expense",
+      "教育",
+      99 + random() * 300,
+      1 + Math.floor(random() * total),
+      pick(random, NOTE_POOL["教育"]),
+    );
+  if (random() > 0.5)
+    add(
+      "income",
+      "副业",
+      480 + random() * 900,
+      1 + Math.floor(random() * total),
+      pick(random, NOTE_POOL["副业"]),
+    );
 
   return out;
 }

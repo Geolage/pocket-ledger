@@ -29,7 +29,9 @@ export function SettingsSection({ ledger, onResetDemo, onWipe }: Props) {
         <Card className="gap-3 p-4 shadow-sm">
           <CardHeader className="px-0">
             <CardTitle className="text-[15px]">配色主题</CardTitle>
-            <p className="text-xs text-muted-foreground">三套淡蓝绿主题，切换后立即生效并记住选择。</p>
+            <p className="text-xs text-muted-foreground">
+              三套淡蓝绿主题，切换后立即生效并记住选择。
+            </p>
           </CardHeader>
           <CardContent className="px-0">
             <RadioGroup
@@ -54,10 +56,16 @@ export function SettingsSection({ ledger, onResetDemo, onWipe }: Props) {
                   </span>
                   <span className="flex gap-1" aria-hidden="true">
                     {theme.swatches.map((color) => (
-                      <span key={color} className="size-4 rounded-md ring-1 ring-black/5" style={{ background: color }} />
+                      <span
+                        key={color}
+                        className="size-4 rounded-md ring-1 ring-black/5"
+                        style={{ background: color }}
+                      />
                     ))}
                   </span>
-                  <span className="text-[11px] leading-snug text-muted-foreground">{theme.tagline}</span>
+                  <span className="text-[11px] leading-snug text-muted-foreground">
+                    {theme.tagline}
+                  </span>
                 </Label>
               ))}
             </RadioGroup>
@@ -68,16 +76,20 @@ export function SettingsSection({ ledger, onResetDemo, onWipe }: Props) {
           <CardHeader className="px-0">
             <CardTitle className="text-[15px]">数据与隐私</CardTitle>
             <p className="text-xs text-muted-foreground tabular-nums">
-              本机已保存 {ledger.records.length} 笔记录、{budgetCount} 个分类预算，约占 {kilobytes} KB。
+              本机已保存 {ledger.records.length} 笔记录、{budgetCount} 个分类预算，约占 {kilobytes}{" "}
+              KB。
             </p>
           </CardHeader>
           <CardContent className="flex flex-col gap-3 px-0">
             <ul className="grid gap-1.5 text-[13px] text-muted-foreground">
               <li>
-                账单、预算和主题保存在浏览器的 localStorage 中，<strong className="font-medium text-foreground">不会连接任何银行账户</strong>，也不会上传。
+                账单、预算和主题保存在浏览器的 localStorage 中，
+                <strong className="font-medium text-foreground">不会连接任何银行账户</strong>
+                ，也不会上传。
               </li>
               <li>
-                当前账本为<strong className="font-medium text-foreground">演示数据</strong>：人物、商户与金额均为虚构，不构成任何理财或投资建议。
+                当前账本为<strong className="font-medium text-foreground">演示数据</strong>
+                ：人物、商户与金额均为虚构，不构成任何理财或投资建议。
               </li>
             </ul>
             {!ledger.storageAvailable && (
@@ -89,7 +101,12 @@ export function SettingsSection({ ledger, onResetDemo, onWipe }: Props) {
               <Button type="button" variant="outline" onClick={onResetDemo}>
                 恢复演示数据
               </Button>
-              <Button type="button" variant="outline" onClick={onWipe} className="text-negative hover:bg-destructive/10">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onWipe}
+                className="text-negative hover:bg-destructive/10"
+              >
                 清空所有数据
               </Button>
             </div>

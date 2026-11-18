@@ -60,10 +60,7 @@ export function BudgetSection({ ledger, onClearBudget }: Props) {
           {ledger.budget.rows.map((row) => (
             <Card
               key={row.category}
-              className={[
-                "gap-2 p-4 shadow-sm",
-                row.over ? "border-destructive" : "",
-              ].join(" ")}
+              className={["gap-2 p-4 shadow-sm", row.over ? "border-destructive" : ""].join(" ")}
             >
               <div className="flex items-baseline justify-between gap-2">
                 <p className="text-sm font-medium">{row.category}</p>
@@ -83,8 +80,15 @@ export function BudgetSection({ ledger, onClearBudget }: Props) {
                       : "[&>[data-slot=progress-indicator]]:bg-primary",
                 ].join(" ")}
               />
-              <p className={["text-xs tabular-nums", row.over ? "font-medium text-negative" : "text-muted-foreground"].join(" ")}>
-                {row.over ? `已超支 ${money(row.spent - row.budget)}` : `剩余 ${money(row.remaining)} · 已用 ${Math.round(row.pct)}%`}
+              <p
+                className={[
+                  "text-xs tabular-nums",
+                  row.over ? "font-medium text-negative" : "text-muted-foreground",
+                ].join(" ")}
+              >
+                {row.over
+                  ? `已超支 ${money(row.spent - row.budget)}`
+                  : `剩余 ${money(row.remaining)} · 已用 ${Math.round(row.pct)}%`}
               </p>
             </Card>
           ))}
@@ -133,7 +137,10 @@ export function BudgetSection({ ledger, onClearBudget }: Props) {
         </div>
 
         {error && (
-          <p role="alert" className="flex items-center gap-1.5 text-[13px] text-negative sm:col-span-2 lg:col-span-3">
+          <p
+            role="alert"
+            className="flex items-center gap-1.5 text-[13px] text-negative sm:col-span-2 lg:col-span-3"
+          >
             <CircleAlertIcon className="size-4" aria-hidden="true" />
             {error}
           </p>

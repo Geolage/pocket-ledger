@@ -30,7 +30,11 @@ interface Props {
 export function BillsSection({ ledger, onAdd, onEdit, onDelete }: Props) {
   const { visibleRecords, monthCount, filters } = ledger;
   const net = visibleRecords.reduce(
-    (sum, record) => sum + (record.type === "expense" ? -Math.round(record.amount * 100) : Math.round(record.amount * 100)),
+    (sum, record) =>
+      sum +
+      (record.type === "expense"
+        ? -Math.round(record.amount * 100)
+        : Math.round(record.amount * 100)),
     0,
   );
 
@@ -56,7 +60,10 @@ export function BillsSection({ ledger, onAdd, onEdit, onDelete }: Props) {
       >
         <div className="grid gap-1.5">
           <Label htmlFor="filter-type">类型</Label>
-          <Select value={filters.type} onValueChange={(value) => update({ type: value as Filters["type"] })}>
+          <Select
+            value={filters.type}
+            onValueChange={(value) => update({ type: value as Filters["type"] })}
+          >
             <SelectTrigger id="filter-type" className="w-full">
               <SelectValue />
             </SelectTrigger>
@@ -97,7 +104,12 @@ export function BillsSection({ ledger, onAdd, onEdit, onDelete }: Props) {
           />
         </div>
 
-        <Button type="button" variant="outline" onClick={ledger.resetFilters} className="justify-self-start lg:justify-self-auto">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={ledger.resetFilters}
+          className="justify-self-start lg:justify-self-auto"
+        >
           清除筛选
         </Button>
       </form>
@@ -105,12 +117,20 @@ export function BillsSection({ ledger, onAdd, onEdit, onDelete }: Props) {
       {visibleRecords.length === 0 ? (
         <div className="mt-3 grid justify-items-center gap-2 rounded-xl border border-dashed border-input bg-surface-soft px-4 py-8 text-center">
           <p className="text-sm font-medium">
-            {monthCount === 0 ? `${monthLabel(ledger.year, ledger.month)}还没有记录` : "没有符合筛选条件的账单"}
+            {monthCount === 0
+              ? `${monthLabel(ledger.year, ledger.month)}还没有记录`
+              : "没有符合筛选条件的账单"}
           </p>
           <p className="text-[13px] text-muted-foreground">
-            {monthCount === 0 ? "点「记一笔」记下第一笔收支。" : `本月有 ${monthCount} 笔记录，试着换个关键词或清除筛选。`}
+            {monthCount === 0
+              ? "点「记一笔」记下第一笔收支。"
+              : `本月有 ${monthCount} 笔记录，试着换个关键词或清除筛选。`}
           </p>
-          {monthCount === 0 && <Button type="button" onClick={onAdd}>记一笔</Button>}
+          {monthCount === 0 && (
+            <Button type="button" onClick={onAdd}>
+              记一笔
+            </Button>
+          )}
         </div>
       ) : (
         <ul className="mt-3 divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
@@ -118,7 +138,13 @@ export function BillsSection({ ledger, onAdd, onEdit, onDelete }: Props) {
             const previous = visibleRecords[index - 1];
             const showDay = !previous || previous.date !== record.date;
             return (
-              <BillRow key={record.id} record={record} showDay={showDay} onEdit={onEdit} onDelete={onDelete} />
+              <BillRow
+                key={record.id}
+                record={record}
+                showDay={showDay}
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
             );
           })}
         </ul>
@@ -139,7 +165,9 @@ function BillRow({
   onDelete: (record: LedgerRecord) => void;
 }) {
   const date = parseDate(record.date);
-  const weekday = date ? ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][date.getDay()] : "";
+  const weekday = date
+    ? ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][date.getDay()]
+    : "";
 
   return (
     <>
@@ -170,7 +198,13 @@ function BillRow({
           {money(record.amount)}
         </span>
         <span className="col-span-3 flex justify-end gap-1 sm:col-span-1 sm:col-start-4">
-          <Button type="button" variant="ghost" size="icon-sm" onClick={() => onEdit(record)} aria-label={`编辑 ${record.category} ${money(record.amount)}`}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onEdit(record)}
+            aria-label={`编辑 ${record.category} ${money(record.amount)}`}
+          >
             <PencilIcon aria-hidden="true" />
           </Button>
           <Button
