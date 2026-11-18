@@ -189,3 +189,28 @@ test("旧存储键 xiaozhanben.v1 会迁移到 pocket-ledger.v1", async ({ page 
   expect(keys.legacy).toBeNull();
   expect(keys.current).toContain("旧键迁移午餐");
 });
+
+test("主要可点击控件显示 pointer 光标", async ({ page }) => {
+  const cursor = (locator: ReturnType<typeof page.locator>) =>
+    locator.evaluate((element) => getComputedStyle(element).cursor);
+
+  await expect(cursor(page.getByRole("button", { name: "记一笔" }).first())).resolves.toBe(
+    "pointer",
+  );
+  await expect(cursor(page.getByRole("button", { name: "上一个月" }))).resolves.toBe("pointer");
+  await expect(cursor(page.locator("#filter-type"))).resolves.toBe("pointer");
+  await expect(cursor(page.getByRole("link", { name: "预算" }).first())).resolves.toBe("pointer");
+
+  await page.locator("#filter-type").click();
+  await expect(cursor(page.getByRole("option", { name: "支出" }))).resolves.toBe("pointer");
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  await expect(cursor(page.getByText("L2 淡雾蓝", { exact: true }))).resolves.toBe("pointer");
+
+  await page.getByRole("button", { name: "记一笔" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "记一笔" });
+  await expect(cursor(dialog.getByRole("button", { name: "Close" }))).resolves.toBe("pointer");
+  await dialog.getByRole("button", { name: "取消" }).click();
+  await expect(dialog).toBeHidden();
+});

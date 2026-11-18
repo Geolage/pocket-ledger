@@ -221,3 +221,36 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
+
+/* 可点击控件统一提供 pointer 反馈；禁用态保留 not-allowed。 */
+button:not(:disabled),
+input[type="button"]:not(:disabled),
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled),
+input[type="reset"]:not(:disabled),
+input[type="submit"]:not(:disabled),
+select:not(:disabled),
+a[href],
+summary,
+[role="button"]:not([aria-disabled="true"]),
+[role="combobox"]:not([aria-disabled="true"]),
+[role="menuitem"]:not([aria-disabled="true"]),
+[role="option"]:not([aria-disabled="true"]),
+[role="radio"]:not([aria-disabled="true"]),
+[role="switch"]:not([aria-disabled="true"]),
+label:has(input:not([disabled])) {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+[role="button"][aria-disabled="true"],
+[role="combobox"][aria-disabled="true"],
+[role="menuitem"][aria-disabled="true"],
+[role="option"][aria-disabled="true"],
+[role="radio"][aria-disabled="true"],
+[role="switch"][aria-disabled="true"],
+[data-disabled] {
+  cursor: not-allowed;
+}

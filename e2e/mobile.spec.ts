@@ -6,7 +6,12 @@ test("手机底部导航记一笔并切换到预算区块", async ({ page }) => 
 
   const nav = page.getByRole("navigation", { name: "移动端导航" });
   await expect(nav).toBeVisible();
-  await nav.getByRole("button", { name: "记一笔" }).click();
+
+  const addButton = nav.getByRole("button", { name: "记一笔" });
+  await expect(addButton.evaluate((element) => getComputedStyle(element).cursor)).resolves.toBe(
+    "pointer",
+  );
+  await addButton.click();
 
   const dialog = page.getByRole("dialog", { name: "记一笔" });
   await dialog.getByLabel(/金额/).fill("15.20");

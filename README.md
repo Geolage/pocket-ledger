@@ -48,7 +48,7 @@ npm run preview
 
 ```sh
 npm run test:unit   # Domain calculations and validation: 10 tests
-npm run test:e2e    # Desktop and mobile interactions: 10 tests
+npm run test:e2e    # Desktop and mobile interactions: 11 tests
 npm test            # Run both suites
 ```
 
