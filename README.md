@@ -1,5 +1,7 @@
 # Pocket Ledger (小账本)
 
+[![CI and GitHub Pages](https://github.com/Geolage/pocket-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/Geolage/pocket-ledger/actions/workflows/ci.yml)
+
 一个本地优先的个人收支记账应用：记录收入与支出、查看月度概览和消费趋势、设置分类预算。所有数据只保存在浏览器 `localStorage`，不连接银行账户，也不发起任何网络请求。
 
 Pocket Ledger is a local-first personal income and expense tracker built with React, TypeScript and Vite. Demo data and user data stay in the browser; there is no backend, account connection or network request.
@@ -50,6 +52,13 @@ npm test            # 依次运行两部分
 
 Playwright 使用 4175 端口和独立的浏览器上下文，不会读写本机现有账本数据。
 
+## CI 与部署
+
+- [ci.yml](.github/workflows/ci.yml) 在 PR 和主分支推送时执行 lint、格式检查、构建、单元测试和 Playwright 回归。
+- 主分支通过校验后，部署任务构建 `dist/` 并发布到 GitHub Pages；部署后地址为 `https://geolage.github.io/pocket-ledger/`。
+- 首次使用前，在仓库 **Settings → Pages → Source** 选择 **GitHub Actions**。
+- 本地模拟 Pages 构建：`GITHUB_PAGES=true npm run build`；Windows PowerShell 使用 `$env:GITHUB_PAGES="true"; npm run build`。
+
 ## 数据与范围
 
 - 存储键：`pocket-ledger.v1`；旧键 `xiaozhanben.v1` 会在首次读取时自动迁移。
@@ -64,6 +73,10 @@ Playwright 使用 4175 端口和独立的浏览器上下文，不会读写本机
 - `scripts/`：Node 领域测试和构建脚本
 - `e2e/`：Playwright 桌面/手机回归
 - `vendor/`：带许可证的模板样式文件
+
+## 开发方式
+
+产品范围、信息架构和交互取舍由开发者确定；实现、测试脚手架和部署配置在 Qoder AI 辅助下完成。核心金额计算、本地存储和桌面/手机交互均有自动化回归，相关提交使用 `Assisted-by: Qoder` 标注 AI 参与，便于审阅时区分人工决策与生成内容。
 
 ## Attribution
 

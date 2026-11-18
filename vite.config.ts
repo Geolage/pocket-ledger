@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  base: process.env.GITHUB_PAGES ? "/pocket-ledger/" : "/",
   resolve: { alias: { "@": fileURLToPath(new URL(".", import.meta.url)) } },
   server: { host: "127.0.0.1" },
   preview: { host: "127.0.0.1" },
