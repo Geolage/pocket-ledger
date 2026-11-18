@@ -4,6 +4,8 @@
 
 [简体中文](README.zh-CN.md)
 
+**Live demo:** <https://geolage.github.io/pocket-ledger/>
+
 Pocket Ledger is a local-first personal income and expense tracker. Record income and expenses, review monthly summaries and spending trends, and set category budgets. All data stays in the browser's `localStorage`; there is no backend, bank connection, or network request.
 
 ## Features

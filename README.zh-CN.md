@@ -4,6 +4,8 @@
 
 [English](README.md)
 
+**在线演示：** <https://geolage.github.io/pocket-ledger/>
+
 一个本地优先的个人收支记账应用：记录收入与支出、查看月度概览和消费趋势、设置分类预算。所有数据只保存在浏览器 `localStorage`，不连接银行账户，也不发起任何网络请求。
 
 ## 功能
