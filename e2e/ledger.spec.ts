@@ -251,6 +251,31 @@ test("旧存储键 xiaozhanben.v1 会迁移到 pocket-ledger.v1", async ({ page 
   expect(keys.current).toContain("旧键迁移午餐");
 });
 
+test("迁移失败的原始状态不会被首次挂载覆盖，用户改动后恢复落盘", async ({ page }) => {
+  const readStored = () => page.evaluate(() => localStorage.getItem("pocket-ledger.v1"));
+
+  // 解析得出来、迁移不了的脏状态：问题出在代码而不是数据，盘里那份原始内容要留着。
+  const poisoned = "null";
+  await page.addInitScript((raw) => {
+    localStorage.setItem("pocket-ledger.v1", raw);
+  }, poisoned);
+
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
+  // 迁移失败退回安全状态：没有记录，但界面照常可用。
+  await expect(page.getByText(/还没有记录/).first()).toBeVisible();
+  await expect(readStored()).resolves.toBe(poisoned);
+
+  // 只换月份（不改状态、不该落盘）之后再确认一次，StrictMode 重复挂载也不会提前写。
+  await page.getByRole("button", { name: "上一个月" }).click();
+  await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
+  await expect(readStored()).resolves.toBe(poisoned);
+
+  // 用户真的改动账本之后，正常持久化恢复。
+  await addExpense(page, "12.00", "降级后恢复落盘");
+  await expect.poll(readStored).toContain("降级后恢复落盘");
+});
+
 test("主要可点击控件显示 pointer 光标", async ({ page }) => {
   const cursor = (locator: ReturnType<typeof page.locator>) =>
     locator.evaluate((element) => getComputedStyle(element).cursor);

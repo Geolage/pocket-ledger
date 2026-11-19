@@ -225,15 +225,20 @@ export function renameCategory(
   const nextCategories = categories.map((category) =>
     category.id === id ? { ...category, name: trimmed } : category,
   );
+  // 记录与预算的分类名在落盘前就去过空格，这里再按去空格的值比对，
+  // 内存里遗留的脏名字也能一起改名，不会留下半条预算。
   const nextRecords = records.map((record) =>
-    record.type === target.type && record.category === target.name
+    record.type === target.type && record.category.trim() === target.name
       ? { ...record, category: trimmed }
       : record,
   );
   const nextBudgets = { ...budgets };
-  if (Object.prototype.hasOwnProperty.call(nextBudgets, target.name)) {
-    nextBudgets[trimmed] = nextBudgets[target.name];
-    delete nextBudgets[target.name];
+  const budgetKey = Object.keys(nextBudgets).find(
+    (key) => key.trim() === target.name && key !== trimmed,
+  );
+  if (budgetKey !== undefined) {
+    nextBudgets[trimmed] = nextBudgets[budgetKey];
+    delete nextBudgets[budgetKey];
   }
 
   return { categories: nextCategories, records: nextRecords, budgets: nextBudgets };
@@ -260,11 +265,16 @@ export function deleteUnusedCategory(
 ): CategoryMutation | null {
   const target = categories.find((category) => category.id === id);
   if (!target || target.builtin) return null;
-  if (records.some((record) => record.type === target.type && record.category === target.name))
+  // 比对去空格后的名字：脏记录仍在使用这个分类时不能删，否则预算与记录就成孤儿。
+  if (
+    records.some((record) => record.type === target.type && record.category.trim() === target.name)
+  )
     return null;
 
   const nextBudgets = { ...budgets };
-  delete nextBudgets[target.name];
+  for (const key of Object.keys(nextBudgets)) {
+    if (key.trim() === target.name) delete nextBudgets[key];
+  }
 
   return {
     categories: categories.filter((category) => category.id !== id),
@@ -281,6 +291,10 @@ export function categoryOptions(
     ...enabledNames(categories, "expense"),
     ...enabledNames(categories, "income"),
   ]);
-  for (const record of records) names.add(record.category);
+  for (const record of records) {
+    // 候选项与预算、颜色同用分类名当键，这里同样先去空格，剩下的空名字不进列表。
+    const name = record.category.trim();
+    if (name) names.add(name);
+  }
   return [...names];
 }

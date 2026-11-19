@@ -297,3 +297,52 @@ test("categoryOptions includes enabled categories and categories used by records
   assert.ok(options.includes("宠物"));
   assert.ok(options.includes("购物"));
 });
+
+test("categoryOptions trims record categories and skips space-only names", () => {
+  const options = categoryOptions(BUILTIN_CATEGORIES, [
+    record({ category: " 宠物 " }),
+    record({ category: "   " }),
+  ]);
+
+  assert.ok(options.includes("宠物"));
+  // 候选项也是按名字取预算与颜色的，多一个 " 宠物 " 就多一个选不到的选项。
+  assert.ok(!options.some((name) => name !== name.trim()), String(options));
+});
+
+test("renameCategory retargets records and budgets written with stray spaces", () => {
+  const categories = normalizeCategories(undefined, [record({ category: "宠物" })]);
+  const target = categories.find((category) => category.name === "宠物");
+
+  const result = renameCategory(
+    categories,
+    [record({ category: " 宠物 " })],
+    { " 宠物 ": 300 },
+    target.id,
+    "猫粮",
+  );
+
+  assert.ok(result);
+  assert.equal(result.records[0].category, "猫粮");
+  assert.deepEqual(result.budgets, { 猫粮: 300 });
+});
+
+test("deleteUnusedCategory refuses to drop a category used with stray spaces", () => {
+  const custom = {
+    id: "c1",
+    type: "expense",
+    name: "宠物",
+    color: "var(--cat-2)",
+    disabled: false,
+    builtin: false,
+  };
+  const categories = [...BUILTIN_CATEGORIES, custom];
+
+  assert.equal(
+    deleteUnusedCategory(categories, [record({ category: " 宠物 " })], { " 宠物 ": 100 }, "c1"),
+    null,
+  );
+
+  const result = deleteUnusedCategory(categories, [record()], { " 宠物 ": 100, 餐饮: 50 }, "c1");
+  assert.ok(result);
+  assert.deepEqual(result.budgets, { 餐饮: 50 });
+});

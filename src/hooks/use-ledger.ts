@@ -24,7 +24,7 @@ import {
   summarize,
 } from "@/src/lib/ledger";
 import { type ThemeId, applyTheme } from "@/src/lib/themes";
-import { demoState, loadState, saveState } from "@/src/lib/storage";
+import { type LedgerState, demoState, loadState, saveState } from "@/src/lib/storage";
 
 export interface RecordDraft {
   type: RecordType;
@@ -64,11 +64,26 @@ export function useLedger() {
     applyTheme(theme);
   }, [theme]);
 
+  // 迁移失败时盘里那份读得出来的原始状态比内存里的安全状态更有价值：一旦落盘就找不回来了。
+  // 所以记下那份被降级替换掉的状态，直到用户真的改动了某一部分（引用换了、或主题换了）才恢复落盘。
+  // 用「状态还是不是加载时那一份」判断，而不是「第几次执行」，StrictMode 重复挂载也不会提前写盘。
+  const rawPreservedRef = useRef<LedgerState | null>(initial.degraded ? initial.state : null);
+
   // 单一写入点：任何状态变化都落盘，失败时如实提示而不是假装保存成功。
   useEffect(() => {
+    const preserved = rawPreservedRef.current;
+    if (preserved) {
+      // 三份状态还是加载时那一组引用，说明用户什么都没改，此时落盘就会覆盖唯一一份原始数据。
+      const untouched =
+        preserved.records === records &&
+        preserved.budgets === budgets &&
+        preserved.theme === theme &&
+        preserved.categories === categories;
+      if (untouched) return;
+      rawPreservedRef.current = null;
+    }
     const ok = saveState({ records, budgets, theme, categories });
     // The write result is an external-system outcome, so surface it in the UI.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStorageAvailable(ok);
   }, [records, budgets, theme, categories]);
 
@@ -112,7 +127,8 @@ export function useLedger() {
       id: newId(),
       type: draft.type,
       amount: fromCents(cents(draft.amount)),
-      category: draft.category,
+      // 分类名是预算与颜色的键，写进状态前就去空格，免得落盘的记录又攒出两个「餐饮」。
+      category: draft.category.trim(),
       date: draft.date,
       note: draft.note,
       createdAt: Date.now(),
@@ -124,7 +140,14 @@ export function useLedger() {
   const updateRecord = useCallback((id: string, draft: RecordDraft) => {
     setRecords((current) =>
       current.map((record) =>
-        record.id === id ? { ...record, ...draft, amount: fromCents(cents(draft.amount)) } : record,
+        record.id === id
+          ? {
+              ...record,
+              ...draft,
+              amount: fromCents(cents(draft.amount)),
+              category: draft.category.trim(),
+            }
+          : record,
       ),
     );
     setView(startOfMonth(new Date(`${draft.date}T00:00:00`)));
@@ -135,13 +158,15 @@ export function useLedger() {
   }, []);
 
   const setBudget = useCallback((category: string, amount: number) => {
-    setBudgets((current) => ({ ...current, [category]: fromCents(cents(amount)) }));
+    const name = category.trim();
+    setBudgets((current) => ({ ...current, [name]: fromCents(cents(amount)) }));
   }, []);
 
   const clearBudget = useCallback((category: string) => {
+    const name = category.trim();
     setBudgets((current) => {
       const next = { ...current };
-      delete next[category];
+      delete next[name];
       return next;
     });
   }, []);

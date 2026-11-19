@@ -29,6 +29,11 @@ interface StorageResult {
   state: LedgerState;
   /** 浏览器拒绝读写时，UI 需要如实提示 */
   available: boolean;
+  /**
+   * 解析成功但迁移失败：localStorage 里那份原始数据仍然值得找回，
+   * 所以在用户改动覆盖它之前，调用方不能落盘。
+   */
+  degraded: boolean;
 }
 
 function readRaw(): string | null {
@@ -52,13 +57,21 @@ export function canonicalCategories(): CategoryDefinition[] {
   return BUILTIN_CATEGORIES.map((category) => ({ ...category }));
 }
 
-/** 只保留能通过校验的记录；单条记录连读字段都抛错（恶意 getter）时丢掉它，其余照常留下。 */
-function keepValidRecords(input: unknown): LedgerRecord[] {
+/**
+ * 只保留能通过校验的记录，并把分类名去掉首尾空格。分类名是预算、颜色与图表取值的键，
+ * " 餐饮 " 原样存着就会和 "餐饮" 各算一份，预算也就永远对不上。
+ * 只剩空格的分类落不进任何统计，连同读字段都抛错的记录（恶意 getter）一起丢掉。
+ */
+function keepNormalizedRecords(input: unknown): LedgerRecord[] {
   if (!Array.isArray(input)) return [];
   const out: LedgerRecord[] = [];
   for (const item of input) {
     try {
-      if (isValidRecord(item)) out.push(item as LedgerRecord);
+      if (!isValidRecord(item)) continue;
+      const record = item as LedgerRecord;
+      const category = record.category.trim();
+      if (!category) continue;
+      out.push({ ...record, category });
     } catch {
       // 读不出来的记录不算数据，直接跳过。
     }
@@ -68,7 +81,7 @@ function keepValidRecords(input: unknown): LedgerRecord[] {
 
 /** 任何来源的状态（本机存储、导入文件）都先过这一道，保证分类与记录齐全。 */
 export function normalizeLedgerState(input: Partial<LedgerState>): LedgerState {
-  const records = keepValidRecords(input.records);
+  const records = keepNormalizedRecords(input.records);
   return {
     records,
     budgets: sanitizeBudgets(input.budgets),
@@ -85,7 +98,7 @@ export function normalizeLedgerState(input: Partial<LedgerState>): LedgerState {
 export function safeMigratedState(input: unknown): LedgerState {
   const parsed = (input && typeof input === "object" ? input : {}) as Partial<LedgerState>;
   return {
-    records: keepValidRecords(parsed.records),
+    records: keepNormalizedRecords(parsed.records),
     budgets: sanitizeBudgets(parsed.budgets),
     theme: isThemeId(parsed.theme) ? parsed.theme : DEFAULT_THEME,
     categories: canonicalCategories(),
@@ -100,7 +113,7 @@ export function loadState(): StorageResult {
   if (raw === null) {
     const seeded = demoState(DEFAULT_THEME);
     writeState(seeded);
-    return { state: seeded, available };
+    return { state: seeded, available, degraded: false };
   }
 
   let parsed: unknown;
@@ -110,13 +123,18 @@ export function loadState(): StorageResult {
     // 只有这份 JSON 彻底读不出内容时才允许用演示数据覆盖：它本身已经不可用。
     const fallback = demoState(DEFAULT_THEME);
     writeState(fallback);
-    return { state: fallback, available };
+    return { state: fallback, available, degraded: false };
   }
 
   try {
-    return { state: normalizeLedgerState(parsed as Partial<LedgerState>), available };
+    return {
+      state: normalizeLedgerState(parsed as Partial<LedgerState>),
+      available,
+      degraded: false,
+    };
   } catch {
-    return { state: safeMigratedState(parsed), available };
+    // 数据能读出来，是迁移代码出了问题，所以盘里的原始状态要留着，等调用方改动时再覆盖。
+    return { state: safeMigratedState(parsed), available, degraded: true };
   }
 }
 
@@ -149,13 +167,22 @@ export function storedBytes(): number {
   return raw ? raw.length : 0;
 }
 
+/**
+ * 预算按分类名取值，所以键先去空格；同一分类写成 "餐饮" 与 " 餐饮 " 时
+ * 合并成一笔，金额按分相加，避免两条各算一半或浮点误差。
+ */
 function sanitizeBudgets(input: unknown): Budgets {
   if (!input || typeof input !== "object") return {};
-  const out: Budgets = {};
-  for (const [category, value] of Object.entries(input as Record<string, unknown>)) {
+  const totals = new Map<string, number>();
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    const category = key.trim();
     const amount = Number(value);
-    if (Number.isFinite(amount) && amount > 0) out[category] = fromCents(cents(amount));
+    if (!category) continue;
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    totals.set(category, (totals.get(category) ?? 0) + cents(amount));
   }
+  const out: Budgets = {};
+  for (const [category, value] of totals) out[category] = fromCents(value);
   return out;
 }
 
