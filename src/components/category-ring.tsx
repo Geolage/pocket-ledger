@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { categoryColor, money } from "@/src/lib/ledger";
+import { colorOf, money } from "@/src/lib/ledger";
 import type { LedgerApi } from "@/src/hooks/use-ledger";
 
 const RADIUS = 48;
@@ -12,6 +12,8 @@ interface Props {
 
 export function CategoryRing({ ledger }: Props) {
   const { total, slices } = ledger.ring;
+  // 色表由 hook 跟着分类列表一起缓存，这里每片只查一次索引，不再扫整张分类表。
+  const color = (category: string) => colorOf(ledger.categoryColors, category, "expense");
   let offset = 0;
 
   return (
@@ -52,7 +54,7 @@ export function CategoryRing({ ledger }: Props) {
                     cy="60"
                     r={RADIUS}
                     fill="none"
-                    stroke={categoryColor(slice.category, "expense", ledger.categories)}
+                    stroke={color(slice.category)}
                     strokeWidth="18"
                     strokeDasharray={dash}
                     strokeDashoffset={-offset}
@@ -85,7 +87,7 @@ export function CategoryRing({ ledger }: Props) {
                   aria-hidden="true"
                   className="size-2.5 rounded-sm ring-1 ring-black/5"
                   style={{
-                    background: categoryColor(slice.category, "expense", ledger.categories),
+                    background: color(slice.category),
                   }}
                 />
                 <span className="truncate text-muted-foreground">{slice.category}</span>

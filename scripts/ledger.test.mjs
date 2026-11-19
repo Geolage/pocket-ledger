@@ -28,8 +28,10 @@ test("money and cents use two-decimal rounding without float drift", () => {
 test("categories and colors follow income and expense rules", () => {
   assert.deepEqual(ledger.categoriesFor("expense", BUILTIN_CATEGORIES), ledger.EXPENSE_CATEGORIES);
   assert.deepEqual(ledger.categoriesFor("income", BUILTIN_CATEGORIES), ledger.INCOME_CATEGORIES);
-  assert.equal(ledger.categoryColor("餐饮", "expense", BUILTIN_CATEGORIES), "var(--cat-1)");
-  assert.equal(ledger.categoryColor("不存在", "expense", BUILTIN_CATEGORIES), ledger.DEFAULT_COLOR);
+
+  const colors = ledger.categoryColorIndex(BUILTIN_CATEGORIES);
+  assert.equal(ledger.colorOf(colors, "餐饮", "expense"), "var(--cat-1)");
+  assert.equal(ledger.colorOf(colors, "不存在", "expense"), ledger.DEFAULT_COLOR);
 });
 
 test("shared category constants cannot be mutated by consumers", () => {
@@ -49,7 +51,7 @@ test("shared category constants cannot be mutated by consumers", () => {
   assert.equal(ledger.EXPENSE_CATEGORIES.length, 8);
 });
 
-test("categoryColor resolves by type so a shared name keeps two colors", () => {
+test("the color index resolves by type so a shared name keeps two colors", () => {
   // 预算与颜色都按名字取值，同名跨类型必须靠 type 才分得开。
   const mixed = [
     {
@@ -70,9 +72,13 @@ test("categoryColor resolves by type so a shared name keeps two colors", () => {
     },
   ];
 
-  assert.equal(ledger.categoryColor("宠物", "expense", mixed), "var(--cat-1)");
-  assert.equal(ledger.categoryColor("宠物", "income", mixed), "var(--cat-6)");
-  assert.equal(ledger.categoryColor("宠物", "expense", BUILTIN_CATEGORIES), ledger.DEFAULT_COLOR);
+  const colors = ledger.categoryColorIndex(mixed);
+  assert.equal(ledger.colorOf(colors, "宠物", "expense"), "var(--cat-1)");
+  assert.equal(ledger.colorOf(colors, "宠物", "income"), "var(--cat-6)");
+  assert.equal(
+    ledger.colorOf(ledger.categoryColorIndex(BUILTIN_CATEGORIES), "宠物", "expense"),
+    ledger.DEFAULT_COLOR,
+  );
 });
 
 test("enabledNames skips disabled categories and the other type", () => {

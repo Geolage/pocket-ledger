@@ -10,12 +10,12 @@ import {
 } from "@/components/ui/select";
 import { PencilIcon, Trash2Icon } from "lucide-react";
 import {
-  categoryColor,
+  type CategoryColorIndex,
+  type LedgerRecord,
+  colorOf,
   money,
   monthLabel,
   parseDate,
-  type CategoryDefinition,
-  type LedgerRecord,
 } from "@/src/lib/ledger";
 import type { Filters, LedgerApi } from "@/src/hooks/use-ledger";
 
@@ -83,7 +83,8 @@ export function BillsSection({ ledger, onAdd, onEdit, onDelete }: Props) {
             <SelectContent>
               <SelectItem value="all">全部分类</SelectItem>
               {/* 候选来自账本的分类定义：启用的分类 + 本月记录里用过的分类，
-                  停用后仍留有账单的分类要能筛得出来。 */}
+                  停用后仍留有账单的分类要能筛得出来。filters.category 已经由 hook 按这份
+                  候选归一化，所以分类被改名或删除后，这里显示的就是「全部分类」而不是旧名字。 */}
               {ledger.filterCategoryOptions.map((category) => (
                 <SelectItem key={category} value={category}>
                   {category}
@@ -143,7 +144,7 @@ export function BillsSection({ ledger, onAdd, onEdit, onDelete }: Props) {
                 key={record.id}
                 record={record}
                 showDay={showDay}
-                categories={ledger.categories}
+                colors={ledger.categoryColors}
                 onEdit={onEdit}
                 onDelete={onDelete}
               />
@@ -158,13 +159,14 @@ export function BillsSection({ ledger, onAdd, onEdit, onDelete }: Props) {
 function BillRow({
   record,
   showDay,
-  categories,
+  colors,
   onEdit,
   onDelete,
 }: {
   record: LedgerRecord;
   showDay: boolean;
-  categories: CategoryDefinition[];
+  /** 分类色索引：由 hook 跟着分类列表一起缓存，一笔账单取一次色，不再扫整张表。 */
+  colors: CategoryColorIndex;
   onEdit: (record: LedgerRecord) => void;
   onDelete: (record: LedgerRecord) => void;
 }) {
@@ -184,7 +186,7 @@ function BillRow({
         <span
           aria-hidden="true"
           className="grid size-8 place-items-center rounded-lg text-[13px] font-semibold text-white"
-          style={{ background: categoryColor(record.category, record.type, categories) }}
+          style={{ background: colorOf(colors, record.category, record.type) }}
         >
           {record.category.charAt(0)}
         </span>

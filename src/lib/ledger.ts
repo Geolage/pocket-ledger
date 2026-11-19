@@ -87,15 +87,29 @@ export function categoriesFor(
   return enabledNames(categories, type);
 }
 
-/** 颜色按 type + name 查：分类名全局唯一只是约定，历史记录里仍可能两边同名。 */
-export function categoryColor(
-  category: string,
-  type: RecordType,
-  categories: readonly CategoryDefinition[],
-): string {
-  return (
-    categories.find((item) => item.type === type && item.name === category)?.color ?? DEFAULT_COLOR
-  );
+/** 颜色索引的键：type 与 name 一起才算一个身份，历史记录里两种类型可能撞名。 */
+function colorKey(type: RecordType, name: string): string {
+  return `${type}:${name}`;
+}
+
+/**
+ * 分类色索引。自定义分类能一直加，账单又是一笔一笔渲染的，
+ * 每次现查一遍列表会让长账单页每次刷新都白扫好几遍分类表。
+ * 调用方用 useMemo 把它跟 categories 一起缓存，见 src/hooks/use-ledger.ts。
+ */
+export type CategoryColorIndex = ReadonlyMap<string, string>;
+
+export function categoryColorIndex(categories: readonly CategoryDefinition[]): CategoryColorIndex {
+  const index = new Map<string, string>();
+  for (const category of categories) {
+    index.set(colorKey(category.type, category.name), category.color);
+  }
+  return index;
+}
+
+/** 从索引里取色；查不到照旧回落默认色，与旧的一次性 find 行为一致。 */
+export function colorOf(index: CategoryColorIndex, category: string, type: RecordType): string {
+  return index.get(colorKey(type, category)) ?? DEFAULT_COLOR;
 }
 
 /* ---------------- 金额：一律按分计算，避免浮点误差 ---------------- */

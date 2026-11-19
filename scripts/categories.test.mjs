@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   BUILTIN_CATEGORIES,
+  MAX_CATEGORY_NAME_LENGTH,
   categoryOptions,
   createCategory,
   deleteCategoryFailure,
@@ -167,6 +168,43 @@ test("createCategory gives new custom categories distinct colors", () => {
   assert.notEqual(first.color, second.color);
 });
 
+test("createCategory rejects names longer than MAX_CATEGORY_NAME_LENGTH", () => {
+  const exactly = "一".repeat(MAX_CATEGORY_NAME_LENGTH);
+
+  // 长度闸门在领域层，不在界面：绕过表单直接调用也存不进超长名字。
+  assert.equal(createCategory("expense", `${exactly}二`, BUILTIN_CATEGORIES), null);
+  assert.ok(createCategory("expense", exactly, BUILTIN_CATEGORIES));
+  // 上限按去掉首尾空格后的名字算，否则界面放过、领域层拦下就自相矛盾了。
+  assert.ok(createCategory("expense", `   ${exactly}   `, BUILTIN_CATEGORIES));
+});
+
+test("renameCategory rejects names longer than MAX_CATEGORY_NAME_LENGTH", () => {
+  const categories = normalizeCategories(undefined, [record({ category: "宠物" })]);
+  const target = categories.find((category) => category.name === "宠物");
+  const records = [record({ category: "宠物" })];
+  const budgets = { 宠物: 300 };
+  const tooLong = "猫".repeat(MAX_CATEGORY_NAME_LENGTH + 1);
+
+  assert.equal(renameCategory(categories, records, budgets, target.id, tooLong), null);
+  // 被拒就是什么都没动：分类名、记录与预算都保持原样。
+  assert.equal(categories.find((category) => category.id === target.id).name, "宠物");
+  assert.deepEqual(records, [record({ category: "宠物" })]);
+  assert.deepEqual(budgets, { 宠物: 300 });
+
+  const result = renameCategory(
+    categories,
+    records,
+    budgets,
+    target.id,
+    "猫".repeat(MAX_CATEGORY_NAME_LENGTH),
+  );
+  assert.ok(result);
+  assert.equal(
+    result.categories.find((category) => category.id === target.id).name.length,
+    MAX_CATEGORY_NAME_LENGTH,
+  );
+});
+
 test("renameCategory updates the definition, records, and budgets", () => {
   const categories = normalizeCategories(undefined, [record({ category: "宠物" })]);
   const target = categories.find((category) => category.name === "宠物");
@@ -274,16 +312,23 @@ test("deleteUnusedCategory only removes unused custom categories", () => {
   };
   const categories = [...BUILTIN_CATEGORIES, custom];
 
-  assert.equal(
+  assert.deepEqual(
     deleteUnusedCategory(categories, [record({ category: "宠物" })], {}, custom.id),
-    null,
+    { ok: false, failure: "in-use" },
   );
-  assert.equal(deleteUnusedCategory(categories, [record()], {}, "expense-0"), null);
+  assert.deepEqual(deleteUnusedCategory(categories, [record()], {}, "expense-0"), {
+    ok: false,
+    failure: "not-removable",
+  });
 
-  const result = deleteUnusedCategory(categories, [record()], { 宠物: 100 }, custom.id);
-  assert.ok(result);
+  const records = [record()];
+  const result = deleteUnusedCategory(categories, records, { 宠物: 100 }, custom.id);
+  assert.ok(result.ok);
   assert.ok(!result.categories.some((category) => category.id === custom.id));
   assert.deepEqual(result.budgets, {});
+
+  // 删除不动任何账单：交回的必须是传进来那一个引用，复制一份就会让记录状态白变一次身份。
+  assert.equal(result.records, records);
 });
 
 test("deleteUnusedCategory refuses to leave a type without any enabled category", () => {
@@ -306,7 +351,10 @@ test("deleteUnusedCategory refuses to leave a type without any enabled category"
   const budgets = { 宠物: 100, 餐饮: 4000 };
 
   assert.equal(deleteCategoryFailure(categories, records, custom.id), "last-enabled");
-  assert.equal(deleteUnusedCategory(categories, records, budgets, custom.id), null);
+  assert.deepEqual(deleteUnusedCategory(categories, records, budgets, custom.id), {
+    ok: false,
+    failure: "last-enabled",
+  });
 
   // 拒绝就是什么都没动：预算键、分类列表与启用数量都保持原样。
   assert.deepEqual(budgets, { 宠物: 100, 餐饮: 4000 });
@@ -314,6 +362,47 @@ test("deleteUnusedCategory refuses to leave a type without any enabled category"
   assert.equal(
     categories.filter((category) => category.type === "expense" && !category.disabled).length,
     1,
+  );
+});
+
+test("the last-enabled delete rule only applies to a still-enabled target", () => {
+  // 内置支出全停用：这个类型现在一个启用分类都不剩，是既成事实，不是删除造成的。
+  const disabledBuiltins = BUILTIN_CATEGORIES.map((category) =>
+    category.type === "expense" ? { ...category, disabled: true } : { ...category },
+  );
+  const custom = {
+    id: "c1",
+    type: "expense",
+    name: "宠物",
+    color: "var(--cat-2)",
+    disabled: false,
+    builtin: false,
+  };
+  const records = [record({ category: "餐饮" })];
+
+  // 目标还启用着：删掉它候选项就空了，照样拦。
+  assert.equal(
+    deleteCategoryFailure([...disabledBuiltins, custom], records, custom.id),
+    "last-enabled",
+  );
+
+  // 目标已经停用：它本来就不在任何候选项里，删掉不减少启用项，得放行。
+  const stopped = { ...custom, disabled: true };
+  assert.equal(deleteCategoryFailure([...disabledBuiltins, stopped], records, stopped.id), null);
+
+  const result = deleteUnusedCategory(
+    [...disabledBuiltins, stopped],
+    records,
+    { 宠物: 100 },
+    stopped.id,
+  );
+  assert.ok(result.ok);
+  assert.ok(!result.categories.some((category) => category.id === stopped.id));
+  assert.deepEqual(result.budgets, {});
+  assert.equal(
+    result.categories.filter((category) => category.type === "expense" && !category.disabled)
+      .length,
+    0,
   );
 });
 
@@ -355,7 +444,7 @@ test("deleteUnusedCategory still deletes once the type keeps an enabled category
 
   assert.equal(deleteCategoryFailure(categories, [record()], custom.id), null);
   const result = deleteUnusedCategory(categories, [record()], { 宠物: 100 }, custom.id);
-  assert.ok(result);
+  assert.ok(result.ok);
   assert.ok(!result.categories.some((category) => category.id === custom.id));
   assert.deepEqual(result.budgets, {});
   assert.equal(
@@ -417,12 +506,12 @@ test("deleteUnusedCategory refuses to drop a category used with stray spaces", (
   };
   const categories = [...BUILTIN_CATEGORIES, custom];
 
-  assert.equal(
+  assert.deepEqual(
     deleteUnusedCategory(categories, [record({ category: " 宠物 " })], { " 宠物 ": 100 }, "c1"),
-    null,
+    { ok: false, failure: "in-use" },
   );
 
   const result = deleteUnusedCategory(categories, [record()], { " 宠物 ": 100, 餐饮: 50 }, "c1");
-  assert.ok(result);
+  assert.ok(result.ok);
   assert.deepEqual(result.budgets, { 餐饮: 50 });
 });

@@ -20,31 +20,38 @@ interface Props {
   onClearBudget: (category: string) => void;
 }
 
+/* 报错位各管各的控件：缺分类是分类选择器的问题，不该让金额输入框挂上无效状态。 */
+const AMOUNT_ERROR_ID = "budget-amount-error";
+const CATEGORY_ERROR_ID = "budget-category-error";
+
 export function BudgetSection({ ledger, onClearBudget }: Props) {
   // 预算只能挂在启用中的支出分类上：自定义分类进候选，停用的分类要跟着出去。
   const options = categoriesFor("expense", ledger.categories);
   const [picked, setPicked] = useState("");
-  const category = options.includes(picked) ? picked : options[0];
+  // 一个启用中的支出分类都没有时留空串：下面所有涉及分类的动作都要先看过它才知道能不能做。
+  const category = options.includes(picked) ? picked : (options[0] ?? "");
   const [amount, setAmount] = useState("");
-  const [error, setError] = useState("");
+  const [amountError, setAmountError] = useState("");
+  const [categoryError, setCategoryError] = useState("");
 
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!category) {
-      setError("请先在「分类管理」里启用至少一个支出分类。");
+      setCategoryError("请先在「分类管理」里启用至少一个支出分类。");
       return;
     }
     const raw = amount.replace(/[，,\s¥]/g, "");
     const value = Number(raw);
     if (raw === "" || Number.isNaN(value) || value < 0) {
-      setError("请输入不小于 0 的预算金额");
+      setAmountError("请输入不小于 0 的预算金额");
       return;
     }
     if (value > 999999) {
-      setError("预算金额请不超过 ¥999,999");
+      setAmountError("预算金额请不超过 ¥999,999");
       return;
     }
-    setError("");
+    setAmountError("");
+    setCategoryError("");
     ledger.setBudget(category, fromCents(cents(value)));
     setAmount("");
   }
@@ -109,8 +116,20 @@ export function BudgetSection({ ledger, onClearBudget }: Props) {
       >
         <div className="grid gap-1.5">
           <Label htmlFor="budget-category">分类</Label>
-          <Select value={category} onValueChange={setPicked}>
-            <SelectTrigger id="budget-category" className="w-full">
+          <Select
+            value={category}
+            onValueChange={(value) => {
+              setPicked(value);
+              // 选上分类就说明候选项回来了，这条报错得跟着收掉。
+              setCategoryError("");
+            }}
+          >
+            <SelectTrigger
+              id="budget-category"
+              className="w-full"
+              aria-invalid={categoryError ? true : undefined}
+              aria-describedby={categoryError ? CATEGORY_ERROR_ID : undefined}
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -121,6 +140,7 @@ export function BudgetSection({ ledger, onClearBudget }: Props) {
               ))}
             </SelectContent>
           </Select>
+          <ErrorText id={CATEGORY_ERROR_ID} message={categoryError} />
         </div>
 
         <div className="grid gap-1.5">
@@ -131,28 +151,41 @@ export function BudgetSection({ ledger, onClearBudget }: Props) {
             autoComplete="off"
             placeholder="例如 1500"
             value={amount}
-            aria-invalid={error ? true : undefined}
-            onChange={(event) => setAmount(event.target.value)}
+            aria-invalid={amountError ? true : undefined}
+            aria-describedby={amountError ? AMOUNT_ERROR_ID : undefined}
+            onChange={(event) => {
+              setAmount(event.target.value);
+              setAmountError("");
+            }}
           />
+          <ErrorText id={AMOUNT_ERROR_ID} message={amountError} />
         </div>
 
         <div className="flex flex-wrap gap-2">
           <Button type="submit">保存预算</Button>
-          <Button type="button" variant="outline" onClick={() => onClearBudget(category)}>
+          {/* 没有可用分类时「取消该分类预算」压根不知道该取消谁：按钮直接 disable，
+              而不是把 undefined 递出去。 */}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onClearBudget(category)}
+            disabled={!category}
+          >
             取消该分类预算
           </Button>
         </div>
-
-        {error && (
-          <p
-            role="alert"
-            className="flex items-center gap-1.5 text-[13px] text-negative sm:col-span-2 lg:col-span-3"
-          >
-            <CircleAlertIcon className="size-4" aria-hidden="true" />
-            {error}
-          </p>
-        )}
       </form>
     </section>
+  );
+}
+
+/** 报错只说明它所属的那个控件：role="alert" 让屏幕阅读器念出来，id 给对应控件引用。 */
+function ErrorText({ id, message }: { id: string; message: string }) {
+  if (!message) return null;
+  return (
+    <p id={id} role="alert" className="flex items-center gap-1.5 text-[13px] text-negative">
+      <CircleAlertIcon className="size-4" aria-hidden="true" />
+      {message}
+    </p>
   );
 }

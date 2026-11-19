@@ -34,8 +34,11 @@ import type { RecordDraft } from "@/src/hooks/use-ledger";
 interface Props {
   open: boolean;
   record: LedgerRecord | null;
-  /** 账本里的分类定义：候选项只能取其中启用的那些，自定义分类也一起跟着走。 */
-  categories: CategoryDefinition[];
+  /**
+   * 账本里的分类定义：候选项只能取其中启用的那些，自定义分类也一起跟着走。
+   * 对话框只读不写，所以收 readonly，省得以后有人在这里原地改分类列表。
+   */
+  categories: readonly CategoryDefinition[];
   onOpenChange: (open: boolean) => void;
   onSave: (draft: RecordDraft) => void;
 }
@@ -48,7 +51,10 @@ interface FormState {
   note: string;
 }
 
-function initialState(record: LedgerRecord | null, categories: CategoryDefinition[]): FormState {
+function initialState(
+  record: LedgerRecord | null,
+  categories: readonly CategoryDefinition[],
+): FormState {
   if (record) {
     // 分类停用也要保住这条记录自己的分类，否则旧账单既读不回也改不了。
     return {

@@ -19,6 +19,12 @@ export interface CategoryMutation {
   budgets: Budgets;
 }
 
+/**
+ * 分类名的长度上限：名字同时是预算与颜色取值的键，也是列表里要读得清的一行字，
+ * 太长既没法对齐也容易串位。界面拿它做提示，领域层拿它做真正的闸门。
+ */
+export const MAX_CATEGORY_NAME_LENGTH = 12;
+
 /** 主题里可用的六种类别色令牌，直接从 CATEGORY_COLOR 的取值去重得到，避免再抄一份清单。 */
 const CATEGORY_COLOR_TOKENS = [...new Set(Object.values(CATEGORY_COLOR))];
 
@@ -199,7 +205,9 @@ export function createCategory(
   categories: readonly CategoryDefinition[],
 ): CategoryDefinition | null {
   const trimmed = name.trim();
-  if (!trimmed || nameTaken(categories, trimmed)) return null;
+  // 闸门放在领域层：界面绕过校验也存不进超长名字。
+  if (!trimmed || trimmed.length > MAX_CATEGORY_NAME_LENGTH) return null;
+  if (nameTaken(categories, trimmed)) return null;
 
   return {
     id:
@@ -224,6 +232,8 @@ export function renameCategory(
   const trimmed = nextName.trim();
   const target = categories.find((category) => category.id === id);
   if (!target || !trimmed) return null;
+  // 超长名字与新增同一条闸门：改名同样会换掉预算与记录的键，不能只靠界面挡。
+  if (trimmed.length > MAX_CATEGORY_NAME_LENGTH) return null;
   // 内置分类的名字是图表、预算与历史记录的键，只能停用不能改名。
   if (target.builtin) return null;
   // 改名后没有实际变化（含只有空格的输入）时返回 null：调用方若不检查就会白丢预算键。
@@ -272,40 +282,72 @@ export function toggleCategory(categories: CategoryDefinition[], id: string): Ca
 /**
  * 删除被拦下来的三种原因，界面要分开解释，混成一句就不诚实了：
  * - in-use：还有账单在用这个名字，删掉记录与预算就成孤儿；
- * - last-enabled：删完这个类型一个启用分类都不剩，记一笔与预算会没有候选项；
+ * - last-enabled：删完这个类型一个启用分类都不剩，记一笔与预算会没有候选项
+ *   （目标自己已经停用时不适用：它本来就不在候选项里）；
  * - not-removable：目标不存在，或者是内置分类（内置项只能停用，不能删）。
  */
 export type DeleteCategoryFailure = "in-use" | "last-enabled" | "not-removable";
+
+type DeletionTarget = { target: CategoryDefinition } | { failure: DeleteCategoryFailure };
+
+/**
+ * 删除只有一道闸门：要么解析出「可以删的自定义分类」，要么给出拦下的原因。
+ * 两条判断（失败原因与真正执行删除）都读这里，就不会各说各话。
+ */
+function resolveDeletion(
+  categories: readonly CategoryDefinition[],
+  records: readonly LedgerRecord[],
+  id: string,
+): DeletionTarget {
+  const target = categories.find((category) => category.id === id);
+  if (!target || target.builtin) return { failure: "not-removable" };
+  // 比对去空格后的名字：脏记录仍在使用这个分类时不能删，否则预算与记录就成孤儿。
+  if (
+    records.some((record) => record.type === target.type && record.category.trim() === target.name)
+  )
+    return { failure: "in-use" };
+
+  // 「每个类型至少留一个启用分类」只在目标自己还启用着时才管用：
+  // 停用中的分类早就不在候选项里了，删掉它一个启用项也不会少。
+  if (!target.disabled) {
+    const remainingEnabled = categories.filter(
+      (category) =>
+        category.type === target.type && !category.disabled && category.id !== target.id,
+    ).length;
+    if (remainingEnabled === 0) return { failure: "last-enabled" };
+  }
+
+  return { target };
+}
 
 export function deleteCategoryFailure(
   categories: readonly CategoryDefinition[],
   records: readonly LedgerRecord[],
   id: string,
 ): DeleteCategoryFailure | null {
-  const target = categories.find((category) => category.id === id);
-  if (!target || target.builtin) return "not-removable";
-  // 比对去空格后的名字：脏记录仍在使用这个分类时不能删，否则预算与记录就成孤儿。
-  if (
-    records.some((record) => record.type === target.type && record.category.trim() === target.name)
-  )
-    return "in-use";
-
-  // 每个类型都要留下至少一个启用分类：候选项、预算行与图表都靠它兜底，删完就什么都选不出来了。
-  const remainingEnabled = categories.filter(
-    (category) => category.type === target.type && !category.disabled && category.id !== target.id,
-  ).length;
-  return remainingEnabled === 0 ? "last-enabled" : null;
+  const resolved = resolveDeletion(categories, records, id);
+  return "target" in resolved ? null : resolved.failure;
 }
+
+/**
+ * 删除的结论只有两种：写成一套新状态，或者给出拦下的原因。
+ * 没有「返回空值但说不清为什么」的第三种情况，调用方不用再猜。
+ *
+ * 删除不动任何账单，所以成功分支里的 records 就是传进来的那一个引用（原样交回，不复制）。
+ * 也正因为要把入参原封不动地返回，records 这里保留可写形参，跟 toggleCategory 同理。
+ */
+export type DeleteCategoryResult =
+  ({ ok: true } & CategoryMutation) | { ok: false; failure: DeleteCategoryFailure };
 
 export function deleteUnusedCategory(
   categories: readonly CategoryDefinition[],
-  records: readonly LedgerRecord[],
+  records: LedgerRecord[],
   budgets: Budgets,
   id: string,
-): CategoryMutation | null {
-  if (deleteCategoryFailure(categories, records, id) !== null) return null;
-  const target = categories.find((category) => category.id === id);
-  if (!target) return null; // 上一道闸门已经保证了目标存在，这里只是给返回值一个交代。
+): DeleteCategoryResult {
+  const resolved = resolveDeletion(categories, records, id);
+  if ("failure" in resolved) return { ok: false, failure: resolved.failure };
+  const target = resolved.target;
 
   const nextBudgets = { ...budgets };
   for (const key of Object.keys(nextBudgets)) {
@@ -313,8 +355,11 @@ export function deleteUnusedCategory(
   }
 
   return {
+    ok: true,
     categories: categories.filter((category) => category.id !== id),
-    records: [...records],
+    // 账单一条都不碰：把同一个引用交回去，调用方写回时既不会多复制一个数组，
+    // 也不会让记录状态的身份白白变一次。
+    records,
     budgets: nextBudgets,
   };
 }

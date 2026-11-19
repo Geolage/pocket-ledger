@@ -14,12 +14,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CircleAlertIcon, PencilIcon, PowerIcon, PowerOffIcon, Trash2Icon } from "lucide-react";
-import type { DeleteCategoryFailure } from "@/src/lib/categories";
+import { MAX_CATEGORY_NAME_LENGTH, type DeleteCategoryFailure } from "@/src/lib/categories";
 import type { LedgerApi } from "@/src/hooks/use-ledger";
 import { type CategoryDefinition, type RecordType } from "@/src/lib/ledger";
-
-/** 分类名是预算与图表的键，也是列表里要读得清的一行字，所以限长；超长输入直接拒绝。 */
-const MAX_NAME_LENGTH = 12;
 
 const TYPE_LABEL: Record<RecordType, string> = { expense: "支出", income: "收入" };
 
@@ -43,7 +40,10 @@ interface Renaming {
   original: string;
 }
 
-/** 三道校验：空、超长、重名。重名跨支出与收入，因为预算与颜色都按名字取值。 */
+/**
+ * 三道校验：空、超长、重名。重名跨支出与收入，因为预算与颜色都按名字取值。
+ * 领域层用同一个 MAX_CATEGORY_NAME_LENGTH 再挡一次，这里的存在只为把话说清楚。
+ */
 function validateName(
   raw: string,
   categories: readonly CategoryDefinition[],
@@ -51,8 +51,8 @@ function validateName(
 ): { name: string; error: string } {
   const name = raw.trim();
   if (!name) return { name, error: "请输入分类名称" };
-  if (name.length > MAX_NAME_LENGTH)
-    return { name, error: `分类名称请不超过 ${MAX_NAME_LENGTH} 个字` };
+  if (name.length > MAX_CATEGORY_NAME_LENGTH)
+    return { name, error: `分类名称请不超过 ${MAX_CATEGORY_NAME_LENGTH} 个字` };
   if (categories.some((category) => category.name === name && category.id !== exceptId))
     return { name, error: DUPLICATE_NAME };
   return { name, error: "" };
@@ -174,12 +174,9 @@ export function CategoryManager({ ledger }: Props) {
                 setActionError("");
               }}
             >
-              <SelectTrigger
-                id="category-type"
-                aria-label="分类类型"
-                className="w-full"
-                aria-describedby={addError ? ADD_ERROR_ID : undefined}
-              >
+              {/* 类型选择器不会出错：新增的报错属于下面的名称输入框，别把 aria-describedby
+                  挂到这儿，否则屏幕阅读器会说「分类类型 无效」。 */}
+              <SelectTrigger id="category-type" aria-label="分类类型" className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
