@@ -155,6 +155,64 @@ test("清空数据后显示空态，恢复演示数据可重新载入", async ({
   await expect(page.getByText(/显示 0 \/ 0 笔/)).toHaveCount(0);
 });
 
+test("恢复演示数据把分类还原成内置项，改名与停用状态不残留", async ({ page }) => {
+  interface StoredCategory {
+    id: string;
+    type: "expense" | "income";
+    name: string;
+    color: string;
+    disabled: boolean;
+    builtin: boolean;
+  }
+
+  const readCategories = () =>
+    page.evaluate(() => {
+      const state = JSON.parse(localStorage.getItem("pocket-ledger.v1") ?? "{}") as {
+        categories: StoredCategory[];
+      };
+      const shopping = state.categories.find((category) => category.name === "购物");
+      return {
+        custom: state.categories.filter((category) => !category.builtin).length,
+        disabled: state.categories.filter((category) => category.disabled).length,
+        shoppingEnabled: shopping?.disabled === false,
+      };
+    });
+
+  await page.evaluate(() => {
+    const state = JSON.parse(localStorage.getItem("pocket-ledger.v1") ?? "{}") as {
+      categories: StoredCategory[];
+    };
+    state.categories = state.categories.map((category) =>
+      category.name === "购物" ? { ...category, disabled: true } : category,
+    );
+    state.categories.push({
+      id: "custom-pet",
+      type: "expense",
+      name: "宠物咖啡",
+      color: "var(--cat-2)",
+      disabled: false,
+      builtin: false,
+    });
+    localStorage.setItem("pocket-ledger.v1", JSON.stringify(state));
+  });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
+
+  // 先确认脏分类真的活过了迁移，否则下面的断言会空过。
+  await expect.poll(readCategories).toEqual({ custom: 1, disabled: 1, shoppingEnabled: false });
+
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: "恢复演示数据" }).click();
+  await page
+    .getByRole("dialog", { name: "恢复演示数据？" })
+    .getByRole("button", { name: "恢复演示" })
+    .click();
+  await expect(page.getByText(/显示 \d+ \/ \d+ 笔/)).toBeVisible();
+
+  // 演示账本换掉记录与预算的同时也要换回规范分类，否则自定义项和停用状态会一直留着。
+  await expect.poll(readCategories).toEqual({ custom: 0, disabled: 0, shoppingEnabled: true });
+});
+
 test("旧存储键 xiaozhanben.v1 会迁移到 pocket-ledger.v1", async ({ page }) => {
   await page.addInitScript(() => {
     const now = new Date();

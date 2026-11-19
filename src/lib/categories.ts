@@ -8,6 +8,7 @@ import {
   INCOME_CATEGORIES,
   type Budgets,
   type CategoryDefinition,
+  enabledNames,
   type LedgerRecord,
   type RecordType,
 } from "./ledger.ts";
@@ -18,17 +19,17 @@ export interface CategoryMutation {
   budgets: Budgets;
 }
 
-/** 主题里可用的六种类别色令牌，自定义分类按用量轮转取色。 */
-const CATEGORY_COLOR_TOKENS = [
-  "var(--cat-1)",
-  "var(--cat-2)",
-  "var(--cat-3)",
-  "var(--cat-4)",
-  "var(--cat-5)",
-  "var(--cat-6)",
-];
+/** 主题里可用的六种类别色令牌，直接从 CATEGORY_COLOR 的取值去重得到，避免再抄一份清单。 */
+const CATEGORY_COLOR_TOKENS = [...new Set(Object.values(CATEGORY_COLOR))];
 
-export const BUILTIN_CATEGORIES: CategoryDefinition[] = [
+function freezeBuiltins(list: CategoryDefinition[]): CategoryDefinition[] {
+  for (const category of list) Object.freeze(category);
+  // 冻结后原地改内置项只会静默失败：内置身份是记录与预算的键，不能被任何消费方改写。
+  Object.freeze(list);
+  return list;
+}
+
+export const BUILTIN_CATEGORIES: CategoryDefinition[] = freezeBuiltins([
   ...EXPENSE_CATEGORIES.map((name, index): CategoryDefinition => ({
     id: `expense-${index}`,
     type: "expense",
@@ -45,7 +46,7 @@ export const BUILTIN_CATEGORIES: CategoryDefinition[] = [
     disabled: false,
     builtin: true,
   })),
-];
+]);
 
 function categoryKey(type: RecordType, name: string): string {
   return `${type}:${name}`;
@@ -153,14 +154,17 @@ export function normalizeCategories(input: unknown, records: LedgerRecord[]): Ca
 
   const list = [...result.values()];
   for (const record of records) {
-    const key = categoryKey(record.type, record.category);
+    // 记录里的分类同样先去空格，否则 "餐饮" 与 " 餐饮 " 会各占一个名字，预算与颜色都对不上。
+    const name = record.category.trim();
+    if (!name) continue;
+    const key = categoryKey(record.type, name);
     if (!result.has(key)) {
-      const id = uniqueId(`${record.type}:${record.category}`, usedIds);
+      const id = uniqueId(`${record.type}:${name}`, usedIds);
       usedIds.add(id);
       const category: CategoryDefinition = {
         id,
         type: record.type,
-        name: record.category,
+        name,
         color: nextColor(list),
         disabled: false,
         builtin: false,
@@ -173,17 +177,21 @@ export function normalizeCategories(input: unknown, records: LedgerRecord[]): Ca
   return list;
 }
 
+/**
+ * 名字是否已被占用。预算与颜色查找都以名字为键，所以唯一性跨支出与收入两种类型，
+ * 否则 "工资" 建两条会让其中一条的预算悄悄失效。
+ */
+function nameTaken(categories: CategoryDefinition[], name: string, exceptId?: string): boolean {
+  return categories.some((category) => category.name === name && category.id !== exceptId);
+}
+
 export function createCategory(
   type: RecordType,
   name: string,
   categories: CategoryDefinition[],
 ): CategoryDefinition | null {
   const trimmed = name.trim();
-  if (
-    !trimmed ||
-    categories.some((category) => category.type === type && category.name === trimmed)
-  )
-    return null;
+  if (!trimmed || nameTaken(categories, trimmed)) return null;
 
   return {
     id:
@@ -210,13 +218,9 @@ export function renameCategory(
   if (!target || !trimmed) return null;
   // 内置分类的名字是图表、预算与历史记录的键，只能停用不能改名。
   if (target.builtin) return null;
-  if (
-    categories.some(
-      (category) =>
-        category.id !== id && category.type === target.type && category.name === trimmed,
-    )
-  )
-    return null;
+  // 改名后没有实际变化（含只有空格的输入）时返回 null：调用方若不检查就会白丢预算键。
+  if (trimmed === target.name) return null;
+  if (nameTaken(categories, trimmed, id)) return null;
 
   const nextCategories = categories.map((category) =>
     category.id === id ? { ...category, name: trimmed } : category,
@@ -273,9 +277,10 @@ export function categoryOptions(
   categories: CategoryDefinition[],
   records: LedgerRecord[],
 ): string[] {
-  const names = new Set(
-    categories.filter((category) => !category.disabled).map((category) => category.name),
-  );
+  const names = new Set([
+    ...enabledNames(categories, "expense"),
+    ...enabledNames(categories, "income"),
+  ]);
   for (const record of records) names.add(record.category);
   return [...names];
 }

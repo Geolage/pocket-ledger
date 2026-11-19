@@ -52,7 +52,7 @@ export function CategoryRing({ ledger }: Props) {
                     cy="60"
                     r={RADIUS}
                     fill="none"
-                    stroke={categoryColor(slice.category, ledger.categories)}
+                    stroke={categoryColor(slice.category, "expense", ledger.categories)}
                     strokeWidth="18"
                     strokeDasharray={dash}
                     strokeDashoffset={-offset}
@@ -84,7 +84,9 @@ export function CategoryRing({ ledger }: Props) {
                 <span
                   aria-hidden="true"
                   className="size-2.5 rounded-sm ring-1 ring-black/5"
-                  style={{ background: categoryColor(slice.category, ledger.categories) }}
+                  style={{
+                    background: categoryColor(slice.category, "expense", ledger.categories),
+                  }}
                 />
                 <span className="truncate text-muted-foreground">{slice.category}</span>
                 <span className="font-medium tabular-nums">

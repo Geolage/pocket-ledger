@@ -57,14 +57,29 @@ export const DEFAULT_COLOR = "var(--cat-3)";
 
 export const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
-export function categoriesFor(type: RecordType, categories: CategoryDefinition[]): string[] {
+/**
+ * 某个类型下「可以选用」的分类名。预算行、选择器与分类候选共用这一份口径，
+ * 免得各处的过滤条件各写各的。
+ */
+export function enabledNames(categories: CategoryDefinition[], type: RecordType): string[] {
   return categories
     .filter((category) => category.type === type && !category.disabled)
     .map((category) => category.name);
 }
 
-export function categoryColor(category: string, categories: CategoryDefinition[]): string {
-  return categories.find((item) => item.name === category)?.color ?? DEFAULT_COLOR;
+export function categoriesFor(type: RecordType, categories: CategoryDefinition[]): string[] {
+  return enabledNames(categories, type);
+}
+
+/** 颜色按 type + name 查：分类名全局唯一只是约定，历史记录里仍可能两边同名。 */
+export function categoryColor(
+  category: string,
+  type: RecordType,
+  categories: CategoryDefinition[],
+): string {
+  return (
+    categories.find((item) => item.type === type && item.name === category)?.color ?? DEFAULT_COLOR
+  );
 }
 
 /* ---------------- 金额：一律按分计算，避免浮点误差 ---------------- */
@@ -250,14 +265,14 @@ export function budgetSummary(
   let totalBudget = 0;
   let totalSpent = 0;
 
-  for (const category of categories.filter((item) => item.type === "expense" && !item.disabled)) {
-    const budget = Number(budgets[category.name]) || 0;
+  for (const name of enabledNames(categories, "expense")) {
+    const budget = Number(budgets[name]) || 0;
     if (budget <= 0) continue;
-    const used = fromCents(spent.get(category.name) ?? 0);
+    const used = fromCents(spent.get(name) ?? 0);
     totalBudget += cents(budget);
     totalSpent += cents(used);
     rows.push({
-      category: category.name,
+      category: name,
       budget,
       spent: used,
       remaining: fromCents(cents(budget) - cents(used)),

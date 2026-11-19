@@ -1,6 +1,7 @@
 /* 持久化与演示数据：只写本机 localStorage，不发任何网络请求。 */
 
-import { BUILTIN_CATEGORIES, normalizeCategories } from "./categories";
+// 显式写 .ts：scripts 下的单元测试用 node --test 直接加载本模块，Node 的 ESM 解析不会补扩展名。
+import { BUILTIN_CATEGORIES, normalizeCategories } from "./categories.ts";
 import {
   type Budgets,
   type CategoryDefinition,
@@ -11,8 +12,8 @@ import {
   fromCents,
   isValidRecord,
   newId,
-} from "./ledger";
-import { DEFAULT_THEME, type ThemeId, isThemeId } from "./themes";
+} from "./ledger.ts";
+import { DEFAULT_THEME, type ThemeId, isThemeId } from "./themes.ts";
 
 export const STORAGE_KEY = "pocket-ledger.v1";
 const LEGACY_STORAGE_KEY = "xiaozhanben.v1";
@@ -46,9 +47,28 @@ function readRaw(): string | null {
   }
 }
 
+/** 内置分类的可写副本：BUILTIN_CATEGORIES 本身是冻结的，直接下发会被调用方改坏。 */
+export function canonicalCategories(): CategoryDefinition[] {
+  return BUILTIN_CATEGORIES.map((category) => ({ ...category }));
+}
+
+/** 只保留能通过校验的记录；单条记录连读字段都抛错（恶意 getter）时丢掉它，其余照常留下。 */
+function keepValidRecords(input: unknown): LedgerRecord[] {
+  if (!Array.isArray(input)) return [];
+  const out: LedgerRecord[] = [];
+  for (const item of input) {
+    try {
+      if (isValidRecord(item)) out.push(item as LedgerRecord);
+    } catch {
+      // 读不出来的记录不算数据，直接跳过。
+    }
+  }
+  return out;
+}
+
 /** 任何来源的状态（本机存储、导入文件）都先过这一道，保证分类与记录齐全。 */
 export function normalizeLedgerState(input: Partial<LedgerState>): LedgerState {
-  const records = Array.isArray(input.records) ? input.records.filter(isValidRecord) : [];
+  const records = keepValidRecords(input.records);
   return {
     records,
     budgets: sanitizeBudgets(input.budgets),
@@ -57,22 +77,46 @@ export function normalizeLedgerState(input: Partial<LedgerState>): LedgerState {
   };
 }
 
+/**
+ * 解析成功但迁移失败时的安全状态：能可靠读出的记录、预算、主题原样保留，
+ * 分类退回代码里的规范内置项。它不写盘，所以 localStorage 里的原始数据还在，
+ * 等修好迁移逻辑或导出备份后仍然可以找回。
+ */
+export function safeMigratedState(input: unknown): LedgerState {
+  const parsed = (input && typeof input === "object" ? input : {}) as Partial<LedgerState>;
+  return {
+    records: keepValidRecords(parsed.records),
+    budgets: sanitizeBudgets(parsed.budgets),
+    theme: isThemeId(parsed.theme) ? parsed.theme : DEFAULT_THEME,
+    categories: canonicalCategories(),
+  };
+}
+
 export function loadState(): StorageResult {
+  // available 只表达浏览器肯不肯读写 localStorage，与迁移成不成功无关，UI 的提示才有依据。
+  const available = storageWorks();
   const raw = readRaw();
 
   if (raw === null) {
     const seeded = demoState(DEFAULT_THEME);
     writeState(seeded);
-    return { state: seeded, available: storageWorks() };
+    return { state: seeded, available };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // 只有这份 JSON 彻底读不出内容时才允许用演示数据覆盖：它本身已经不可用。
+    const fallback = demoState(DEFAULT_THEME);
+    writeState(fallback);
+    return { state: fallback, available };
   }
 
   try {
-    const parsed = JSON.parse(raw) as Partial<LedgerState>;
-    return { state: normalizeLedgerState(parsed), available: true };
+    return { state: normalizeLedgerState(parsed as Partial<LedgerState>), available };
   } catch {
-    const fallback = demoState(DEFAULT_THEME);
-    writeState(fallback);
-    return { state: fallback, available: storageWorks() };
+    return { state: safeMigratedState(parsed), available };
   }
 }
 
@@ -249,6 +293,6 @@ export function demoState(theme: ThemeId = DEFAULT_THEME): LedgerState {
     ],
     budgets: { 居住: 2800, 餐饮: 4000, 交通: 1500, 购物: 400, 娱乐: 1200, 其他: 600 },
     theme,
-    categories: BUILTIN_CATEGORIES.map((category) => ({ ...category })),
+    categories: canonicalCategories(),
   };
 }

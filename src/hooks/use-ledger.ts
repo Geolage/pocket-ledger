@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   categoryOptions,
   createCategory,
@@ -47,10 +47,18 @@ export function useLedger() {
   const [records, setRecords] = useState<LedgerRecord[]>(initial.state.records);
   const [budgets, setBudgets] = useState<Budgets>(initial.state.budgets);
   const [theme, setThemeState] = useState<ThemeId>(initial.state.theme);
-  const [categories, setCategories] = useState<CategoryDefinition[]>(initial.state.categories);
+  const [categories, setCategoriesState] = useState<CategoryDefinition[]>(initial.state.categories);
   const [storageAvailable, setStorageAvailable] = useState(initial.available);
   const [view, setView] = useState(() => startOfMonth(new Date()));
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+
+  // 分类的所有写入都走 writeCategories：ref 保存最新意图，同一 tick 里连续操作
+  // 不会拿旧闭包的数组覆盖掉前一次的结果，返回值给 Task 2 用来提示成败。
+  const categoriesRef = useRef(categories);
+  const writeCategories = useCallback((next: CategoryDefinition[]) => {
+    categoriesRef.current = next;
+    setCategoriesState(next);
+  }, []);
 
   useEffect(() => {
     applyTheme(theme);
@@ -144,9 +152,11 @@ export function useLedger() {
     const seeded = demoState(theme);
     setRecords(seeded.records);
     setBudgets(seeded.budgets);
+    // 演示数据连分类定义一起回到规范内置项，否则改名、停用的残留会跟着演示账本一起留着。
+    writeCategories(seeded.categories);
     setFilters(EMPTY_FILTERS);
     setView(startOfMonth(new Date()));
-  }, [theme]);
+  }, [theme, writeCategories]);
 
   const wipeAll = useCallback(() => {
     setRecords([]);
@@ -156,40 +166,48 @@ export function useLedger() {
 
   const addCategory = useCallback(
     (type: RecordType, name: string) => {
-      const next = createCategory(type, name, categories);
-      if (!next) return false;
-      setCategories((current) => [...current, next]);
+      const current = categoriesRef.current;
+      const created = createCategory(type, name, current);
+      if (!created) return false;
+      writeCategories([...current, created]);
       return true;
     },
-    [categories],
+    [writeCategories],
   );
 
   const renameCategoryAction = useCallback(
     (id: string, name: string) => {
-      const result = renameCategory(categories, records, budgets, id, name);
+      const result = renameCategory(categoriesRef.current, records, budgets, id, name);
       if (!result) return false;
-      setCategories(result.categories);
+      writeCategories(result.categories);
       setRecords(result.records);
       setBudgets(result.budgets);
       return true;
     },
-    [categories, records, budgets],
+    [records, budgets, writeCategories],
   );
 
   const toggleCategoryAction = useCallback(
-    (id: string) => setCategories(toggleCategory(categories, id)),
-    [categories],
+    (id: string) => {
+      const current = categoriesRef.current;
+      const next = toggleCategory(current, id);
+      // toggleCategory 原样返回表示「最后一个启用分类不能再停用」，把结论告诉调用方。
+      if (next === current) return false;
+      writeCategories(next);
+      return true;
+    },
+    [writeCategories],
   );
 
   const deleteCategoryAction = useCallback(
     (id: string) => {
-      const result = deleteUnusedCategory(categories, records, budgets, id);
+      const result = deleteUnusedCategory(categoriesRef.current, records, budgets, id);
       if (!result) return false;
-      setCategories(result.categories);
+      writeCategories(result.categories);
       setBudgets(result.budgets);
       return true;
     },
-    [categories, records, budgets],
+    [records, budgets, writeCategories],
   );
 
   const monthCount = monthRecords.length;

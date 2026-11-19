@@ -28,8 +28,54 @@ test("money and cents use two-decimal rounding without float drift", () => {
 test("categories and colors follow income and expense rules", () => {
   assert.deepEqual(ledger.categoriesFor("expense", BUILTIN_CATEGORIES), ledger.EXPENSE_CATEGORIES);
   assert.deepEqual(ledger.categoriesFor("income", BUILTIN_CATEGORIES), ledger.INCOME_CATEGORIES);
-  assert.equal(ledger.categoryColor("餐饮", BUILTIN_CATEGORIES), "var(--cat-1)");
-  assert.equal(ledger.categoryColor("不存在", BUILTIN_CATEGORIES), ledger.DEFAULT_COLOR);
+  assert.equal(ledger.categoryColor("餐饮", "expense", BUILTIN_CATEGORIES), "var(--cat-1)");
+  assert.equal(ledger.categoryColor("不存在", "expense", BUILTIN_CATEGORIES), ledger.DEFAULT_COLOR);
+});
+
+test("categoryColor resolves by type so a shared name keeps two colors", () => {
+  // 预算与颜色都按名字取值，同名跨类型必须靠 type 才分得开。
+  const mixed = [
+    {
+      id: "expense:宠物",
+      type: "expense",
+      name: "宠物",
+      color: "var(--cat-1)",
+      disabled: false,
+      builtin: false,
+    },
+    {
+      id: "income:宠物",
+      type: "income",
+      name: "宠物",
+      color: "var(--cat-6)",
+      disabled: false,
+      builtin: false,
+    },
+  ];
+
+  assert.equal(ledger.categoryColor("宠物", "expense", mixed), "var(--cat-1)");
+  assert.equal(ledger.categoryColor("宠物", "income", mixed), "var(--cat-6)");
+  assert.equal(ledger.categoryColor("宠物", "expense", BUILTIN_CATEGORIES), ledger.DEFAULT_COLOR);
+});
+
+test("enabledNames skips disabled categories and the other type", () => {
+  const categories = BUILTIN_CATEGORIES.map((category) =>
+    category.name === "交通" || category.name === "副业"
+      ? { ...category, disabled: true }
+      : category,
+  );
+
+  assert.deepEqual(ledger.enabledNames(categories, "expense"), [
+    "餐饮",
+    "购物",
+    "居住",
+    "娱乐",
+    "医疗",
+    "教育",
+    "其他",
+  ]);
+  assert.deepEqual(ledger.enabledNames(categories, "income"), ["工资", "奖金", "理财", "其他收入"]);
+  assert.deepEqual(ledger.enabledNames([], "expense"), []);
 });
 
 test("date helpers reject impossible dates and shift across year boundaries", () => {

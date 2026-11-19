@@ -184,7 +184,7 @@ function BillRow({
         <span
           aria-hidden="true"
           className="grid size-8 place-items-center rounded-lg text-[13px] font-semibold text-white"
-          style={{ background: categoryColor(record.category, categories) }}
+          style={{ background: categoryColor(record.category, record.type, categories) }}
         >
           {record.category.charAt(0)}
         </span>

@@ -107,9 +107,52 @@ test("normalizeCategories repairs a renamed built-in id without duplicating it",
   assert.equal(new Set(result.map((category) => category.id)).size, result.length);
 });
 
+test("normalizeCategories trims record categories so names stay unique", () => {
+  const result = normalizeCategories(undefined, [
+    record({ id: "a", category: " 餐饮 " }),
+    record({ id: "b", category: " 宠物 " }),
+    record({ id: "c", category: "   " }),
+  ]);
+
+  // " 餐饮 " 与 "餐饮" 必须合成一条：预算与颜色按名字取值，分开就会各算一半。
+  assert.equal(result.filter((category) => category.name === "餐饮").length, 1);
+  assert.equal(result.length, BUILTIN_CATEGORIES.length + 1);
+
+  const pet = result.find((category) => category.name === "宠物");
+  assert.equal(pet.id, "expense:宠物");
+  assert.ok(!result.some((category) => category.name !== category.name.trim()));
+});
+
+test("BUILTIN_CATEGORIES is frozen so consumers cannot corrupt the canonical list", () => {
+  assert.ok(Object.isFrozen(BUILTIN_CATEGORIES));
+  for (const category of BUILTIN_CATEGORIES) assert.ok(Object.isFrozen(category));
+
+  // 下发给状态里的必须是副本，否则一次原地赋值就把内置身份改没了。
+  const list = normalizeCategories(undefined, []);
+  assert.notEqual(list[0], BUILTIN_CATEGORIES[0]);
+  assert.ok(!Object.isFrozen(list[0]));
+});
+
 test("createCategory rejects duplicate names", () => {
   assert.equal(createCategory("expense", "餐饮", BUILTIN_CATEGORIES), null);
+  assert.equal(createCategory("expense", "   ", BUILTIN_CATEGORIES), null);
   assert.ok(createCategory("expense", "宠物", BUILTIN_CATEGORIES));
+});
+
+test("createCategory rejects a name used by the opposite type", () => {
+  // Budgets 按名字存，两种类型共用一个名字会让其中一份预算永远读不到。
+  assert.equal(createCategory("income", "餐饮", BUILTIN_CATEGORIES), null);
+  assert.equal(createCategory("expense", "工资", BUILTIN_CATEGORIES), null);
+
+  const customIncome = {
+    id: "c1",
+    type: "income",
+    name: "宠物",
+    color: "var(--cat-2)",
+    disabled: false,
+    builtin: false,
+  };
+  assert.equal(createCategory("expense", "宠物", [...BUILTIN_CATEGORIES, customIncome]), null);
 });
 
 test("createCategory gives new custom categories distinct colors", () => {
@@ -157,6 +200,48 @@ test("renameCategory keeps built-in names and leaves records and budgets alone",
       (category) => category.id === builtin.id && category.name === "餐饮",
     ),
   );
+});
+
+test("renameCategory returns null for a no-op rename and keeps the budget", () => {
+  const categories = normalizeCategories(undefined, [record({ category: "宠物" })]);
+  const target = categories.find((category) => category.name === "宠物");
+  const records = [record({ category: "宠物" })];
+  const budgets = { 宠物: 300 };
+
+  // 改名没变化也必须返回 null：调用方若照样写回三份状态，键名一错就把预算丢了。
+  assert.equal(renameCategory(categories, records, budgets, target.id, "宠物"), null);
+  assert.equal(renameCategory(categories, records, budgets, target.id, "  宠物  "), null);
+  assert.equal(renameCategory(categories, records, budgets, target.id, "   "), null);
+  assert.deepEqual(budgets, { 宠物: 300 });
+  assert.deepEqual(records, [record({ category: "宠物" })]);
+});
+
+test("renameCategory rejects a name used by the opposite type and keeps the budget", () => {
+  const custom = [
+    {
+      id: "c-expense",
+      type: "expense",
+      name: "宠物",
+      color: "var(--cat-2)",
+      disabled: false,
+      builtin: false,
+    },
+    {
+      id: "c-income",
+      type: "income",
+      name: "健身",
+      color: "var(--cat-4)",
+      disabled: false,
+      builtin: false,
+    },
+  ];
+  const categories = [...BUILTIN_CATEGORIES, ...custom];
+  const records = [record({ id: "i1", type: "income", category: "健身" })];
+  const budgets = { 健身: 200 };
+
+  assert.equal(renameCategory(categories, records, budgets, "c-expense", "健身"), null);
+  assert.deepEqual(budgets, { 健身: 200 });
+  assert.deepEqual(records, [record({ id: "i1", type: "income", category: "健身" })]);
 });
 
 test("toggleCategory disables a category but keeps at least one enabled", () => {
