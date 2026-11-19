@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { AppSidebar } from "@/src/components/app-sidebar";
 import { AppToolbar } from "@/src/components/app-toolbar";
@@ -14,7 +13,7 @@ import { RecordDialog } from "@/src/components/record-dialog";
 import { SettingsSection } from "@/src/components/settings-section";
 import { SummaryCards } from "@/src/components/summary-cards";
 import { useActiveSection } from "@/src/hooks/use-active-section";
-import { useLedger, type RecordDraft } from "@/src/hooks/use-ledger";
+import { notifyChange, useLedger, type RecordDraft } from "@/src/hooks/use-ledger";
 import { describeRecord, type LedgerRecord, monthLabel } from "@/src/lib/ledger";
 
 export default function App() {
@@ -32,10 +31,10 @@ export default function App() {
     const editing = recordDialog.record;
     if (editing) {
       ledger.updateRecord(editing.id, draft);
-      toast("已更新这笔记录");
+      notifyChange("已更新这笔记录");
     } else {
       ledger.addRecord(draft);
-      toast(draft.type === "income" ? "已记一笔收入" : "已记一笔支出");
+      notifyChange(draft.type === "income" ? "已记一笔收入" : "已记一笔支出");
     }
   }
 
@@ -43,19 +42,19 @@ export default function App() {
     setConfirm({
       title: "确认删除？",
       body: describeRecord(record),
-      hint: "删除后无法恢复，本月统计会立即重新计算。",
+      // 只承诺真给得起的那一步：提示里有一个「撤销」，再往后的改动就会把它顶掉。
+      hint: "删除后本月统计会立即重新计算，提示里的「撤销」可以还原这一步。",
       okLabel: "删除",
       destructive: true,
       onConfirm: () => {
-        ledger.deleteRecord(record.id);
-        toast("已删除 1 笔记录");
+        notifyChange("已删除 1 笔记录", ledger.deleteRecord(record.id));
       },
     });
   }
 
   function askClearBudget(category: string) {
     if (!ledger.budgets[category]) {
-      toast(`${category} 还没有设置预算`);
+      notifyChange(`${category} 还没有设置预算`);
       return;
     }
     setConfirm({
@@ -64,8 +63,7 @@ export default function App() {
       hint: "账单本身不受影响。",
       okLabel: "取消预算",
       onConfirm: () => {
-        ledger.clearBudget(category);
-        toast(`${category} 的预算已取消`);
+        notifyChange(`${category} 的预算已取消`, ledger.clearBudget(category));
       },
     });
   }
@@ -78,8 +76,7 @@ export default function App() {
       okLabel: "恢复演示",
       destructive: true,
       onConfirm: () => {
-        ledger.resetDemo();
-        toast("已恢复演示数据");
+        notifyChange("已恢复演示数据", ledger.resetDemo());
       },
     });
   }
@@ -87,13 +84,12 @@ export default function App() {
   function askWipe() {
     setConfirm({
       title: "清空所有数据？",
-      body: "将删除本机保存的全部账单与预算，此操作无法恢复。",
+      body: "将删除本机保存的全部账单与预算，除了提示里的「撤销」之外无法找回。",
       hint: "之后可以用「恢复演示数据」重新载入示例。",
       okLabel: "清空",
       destructive: true,
       onConfirm: () => {
-        ledger.wipeAll();
-        toast("已清空本机数据");
+        notifyChange("已清空本机数据", ledger.wipeAll());
       },
     });
   }

@@ -801,3 +801,253 @@ test("分类改动驱动记一笔与预算的候选项，停用分类不影响�
     "−¥66.00",
   );
 });
+
+test("删除记录后可以撤销", async ({ page }) => {
+  await addExpense(page, "31.00", "待撤销午餐");
+  const row = page.getByRole("listitem").filter({ hasText: "待撤销午餐" });
+  await row.getByRole("button", { name: /^删除/ }).click();
+  await page
+    .getByRole("dialog", { name: "确认删除？" })
+    .getByRole("button", { name: "删除" })
+    .click();
+  await expect(page.getByText("待撤销午餐")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByText("待撤销午餐")).toBeVisible();
+});
+
+test("清空数据后可以撤销", async ({ page }) => {
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: "清空所有数据" }).click();
+  await page
+    .getByRole("dialog", { name: "清空所有数据？" })
+    .getByRole("button", { name: "清空" })
+    .click();
+  await expect(page.getByText(/还没有记录/).first()).toBeVisible();
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByText(/显示 \d+ \/ \d+ 笔/)).toBeVisible();
+});
+
+test("撤销只顶一步：连删两笔后还回来的是最后一次删除", async ({ page }) => {
+  await addExpense(page, "11.00", "先删的第一笔");
+  await addExpense(page, "22.00", "后删的第二笔");
+
+  const remove = async (note: string) => {
+    await page
+      .getByRole("listitem")
+      .filter({ hasText: note })
+      .getByRole("button", { name: /^删除/ })
+      .click();
+    await page
+      .getByRole("dialog", { name: "确认删除？" })
+      .getByRole("button", { name: "删除" })
+      .click();
+    await expect(page.getByText(note)).toHaveCount(0);
+  };
+
+  await remove("先删的第一笔");
+  await remove("后删的第二笔");
+
+  // 后一次改动顶掉前一次的提示：屏幕上永远只有一个「撤销」，也就点不到更远的那一步。
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(1);
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByText("后删的第二笔")).toBeVisible();
+  await expect(page.getByText("先删的第一笔")).toHaveCount(0);
+});
+
+test("普通提示顶掉撤销提示时，撤销按钮跟着一起消失", async ({ page }) => {
+  await addExpense(page, "27.00", "只留一条提示的记录");
+  const row = page.getByRole("listitem").filter({ hasText: "只留一条提示的记录" });
+  await row.getByRole("button", { name: /^删除/ }).click();
+  await page
+    .getByRole("dialog", { name: "确认删除？" })
+    .getByRole("button", { name: "删除" })
+    .click();
+  await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();
+
+  // 屏幕上只留最新那一条提示：没有可撤改动的新提示不该把上一步的按钮留在原地。
+  await addExpense(page, "18.00", "后来的普通一笔");
+  await expect(page.getByText("已记一笔支出")).toBeVisible();
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+});
+
+test("恢复演示数据后可以撤销", async ({ page }) => {
+  await addExpense(page, "45.00", "自定义拿铁");
+  await expect(page.getByText("自定义拿铁")).toBeVisible();
+
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: "恢复演示数据" }).click();
+  await page
+    .getByRole("dialog", { name: "恢复演示数据？" })
+    .getByRole("button", { name: "恢复演示" })
+    .click();
+  await expect(page.getByText("自定义拿铁")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByText("自定义拿铁")).toBeVisible();
+});
+
+test("撤销会把正在看的月份与筛选条件一起还原", async ({ page }) => {
+  const range = page.getByText(/^统计范围：/);
+  const keyword = page.locator("#filter-keyword");
+  const rentRow = page.getByRole("listitem").filter({ hasText: "房租" });
+
+  await page.getByRole("button", { name: "上一个月" }).click();
+  const previousMonth = await range.textContent();
+  expect(previousMonth).not.toBeNull();
+  await keyword.fill("房租");
+  await expect(rentRow).toBeVisible();
+
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: "恢复演示数据" }).click();
+  await page
+    .getByRole("dialog", { name: "恢复演示数据？" })
+    .getByRole("button", { name: "恢复演示" })
+    .click();
+
+  // 恢复演示顺手把月份跳回本月、筛选清空：这两处正是撤销要一起还回来的界面状态。
+  await expect(range).not.toHaveText(previousMonth as string);
+  await expect(keyword).toHaveValue("");
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(range).toHaveText(previousMonth as string);
+  await expect(keyword).toHaveValue("房租");
+  await expect(rentRow).toBeVisible();
+});
+
+test("取消分类预算后可以撤销", async ({ page }) => {
+  const budget = page.locator("#budget");
+  await budget.getByLabel("每月预算（元）").fill("1");
+  await budget.getByRole("button", { name: "保存预算" }).click();
+  const notice = page.getByRole("status").filter({ hasText: "已超出预算" });
+  await expect(notice).toContainText("餐饮 超出");
+
+  await budget.getByRole("button", { name: "取消该分类预算" }).click();
+  await page
+    .getByRole("dialog", { name: "取消该分类预算？" })
+    .getByRole("button", { name: "取消预算" })
+    .click();
+  await expect(page.getByText(/餐饮 超出/)).toHaveCount(0);
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(notice).toContainText("餐饮 超出");
+});
+
+test("新增分类后可以撤销，落盘的分类跟着一起回去", async ({ page }) => {
+  const customCount = () =>
+    page.evaluate(() => {
+      const state = JSON.parse(localStorage.getItem("pocket-ledger.v1") ?? "{}") as {
+        categories: { builtin: boolean }[];
+      };
+      return state.categories.filter((category) => !category.builtin).length;
+    });
+
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  const manager = page.getByRole("region", { name: "分类管理" });
+
+  await manager.getByLabel("新分类名称").fill("潜水");
+  await manager.getByRole("button", { name: "添加分类" }).click();
+  await expect(manager.getByText("潜水", { exact: true })).toBeVisible();
+  await expect.poll(customCount).toBe(1);
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(manager.getByText("潜水", { exact: true })).toHaveCount(0);
+  await expect.poll(customCount).toBe(0);
+});
+
+test("分类改名后可以撤销，用过它的账单跟着名字一起回来", async ({ page }) => {
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  const manager = page.getByRole("region", { name: "分类管理" });
+  await manager.getByLabel("新分类名称").fill("猫粮");
+  await manager.getByRole("button", { name: "添加分类" }).click();
+
+  await page.getByRole("button", { name: "记一笔" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "记一笔" });
+  await dialog.getByLabel(/金额/).fill("20.00");
+  await dialog.getByLabel(/备注/).fill("跟着改名的那笔");
+  await dialog.locator("#record-category").click();
+  await page.getByRole("option", { name: "猫粮", exact: true }).click();
+  await dialog.getByRole("button", { name: "保存" }).click();
+  await expect(dialog).toBeHidden();
+
+  const row = page.getByRole("listitem").filter({ hasText: "跟着改名的那笔" });
+  await expect(row).toContainText("猫粮");
+
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  await manager.getByRole("button", { name: /^重命名 猫粮$/ }).click();
+  await manager.getByLabel("编辑 猫粮").fill("宠物餐");
+  await manager.getByRole("button", { name: "保存重命名" }).click();
+  await expect(row).toContainText("宠物餐");
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(manager.getByText("猫粮", { exact: true })).toBeVisible();
+  await expect(manager.getByText("宠物餐", { exact: true })).toHaveCount(0);
+  await expect(row).toContainText("猫粮");
+});
+
+test("停用分类后可以撤销", async ({ page }) => {
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  const manager = page.getByRole("region", { name: "分类管理" });
+
+  await manager.getByRole("button", { name: /^停用 餐饮$/ }).click();
+  await expect(manager.getByRole("button", { name: /^启用 餐饮$/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(manager.getByRole("button", { name: /^停用 餐饮$/ })).toBeVisible();
+});
+
+test("删除分类后可以撤销", async ({ page }) => {
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  const manager = page.getByRole("region", { name: "分类管理" });
+
+  await manager.getByLabel("新分类名称").fill("潜水");
+  await manager.getByRole("button", { name: "添加分类" }).click();
+
+  await manager.getByRole("button", { name: /^删除 潜水$/ }).click();
+  await expect(manager.getByText("潜水", { exact: true })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(manager.getByText("潜水", { exact: true })).toBeVisible();
+});
+
+test("被界面校验挡下的分类改动不给撤销按钮", async ({ page }) => {
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  const manager = page.getByRole("region", { name: "分类管理" });
+
+  await manager.getByLabel("新分类名称").fill("餐饮");
+  await manager.getByRole("button", { name: "添加分类" }).click();
+  await expect(manager.getByRole("alert")).toContainText("已有同名分类");
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+});
+
+test("被领域层挡下的停用不给撤销按钮", async ({ page }) => {
+  await page.evaluate(() => {
+    interface StoredCategory {
+      type: "expense" | "income";
+      disabled: boolean;
+    }
+    const state = JSON.parse(localStorage.getItem("pocket-ledger.v1") ?? "{}") as {
+      categories: StoredCategory[];
+    };
+    // 支出只留第一项可用：停用按钮点下去必然被领域层拒掉，那种改动没资格留撤销。
+    let kept = false;
+    state.categories = state.categories.map((category) => {
+      if (category.type !== "expense") return category;
+      const next = { ...category, disabled: kept };
+      kept = true;
+      return next;
+    });
+    localStorage.setItem("pocket-ledger.v1", JSON.stringify(state));
+  });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+
+  const manager = page.getByRole("region", { name: "分类管理" });
+  const onlyEnabled = manager.getByRole("button", { name: /^停用/ });
+  await expect(onlyEnabled).toHaveCount(1);
+  await onlyEnabled.click();
+  await expect(manager.getByRole("alert")).toContainText("至少保留一个启用分类");
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+});

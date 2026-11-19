@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { CircleAlertIcon, PencilIcon, PowerIcon, PowerOffIcon, Trash2Icon } from "lucide-react";
 import { MAX_CATEGORY_NAME_LENGTH, type DeleteCategoryFailure } from "@/src/lib/categories";
-import type { LedgerApi } from "@/src/hooks/use-ledger";
+import { notifyChange, type LedgerApi } from "@/src/hooks/use-ledger";
 import { type CategoryDefinition, type RecordType } from "@/src/lib/ledger";
 
 const TYPE_LABEL: Record<RecordType, string> = { expense: "支出", income: "收入" };
@@ -86,12 +86,15 @@ export function CategoryManager({ ledger }: Props) {
       return;
     }
     // 领域层还会把一轮查重，失败同样要让用户看见，不然点了像没反应。
-    if (!ledger.addCategory(type, name)) {
+    // 被拒掉的改动没有撤销动作，提示里也就不能挂一个点了没反应的「撤销」按钮。
+    const undo = ledger.addCategory(type, name);
+    if (!undo) {
       setAddError(DUPLICATE_NAME);
       return;
     }
     setDraft("");
     setAddError("");
+    notifyChange(`已添加分类 ${name}`, undo);
   }
 
   function startRename(category: CategoryDefinition) {
@@ -117,17 +120,22 @@ export function CategoryManager({ ledger }: Props) {
       setRenameError(UNCHANGED_NAME);
       return;
     }
-    if (!ledger.renameCategoryAction(renaming.id, name)) {
+    const undo = ledger.renameCategoryAction(renaming.id, name);
+    if (!undo) {
       setRenameError(DUPLICATE_NAME);
       return;
     }
     setRenaming(null);
     setRenameError("");
+    notifyChange(`分类已改名为 ${name}`, undo);
   }
 
   function toggle(category: CategoryDefinition) {
-    if (ledger.toggleCategoryAction(category.id)) {
+    const undo = ledger.toggleCategoryAction(category.id);
+    if (undo) {
       setActionError("");
+      // 按钮上写的还是操作前的状态，所以提示要说的是「刚刚做了什么」：停用中就刚启用。
+      notifyChange(`已${category.disabled ? "启用" : "停用"}分类 ${category.name}`, undo);
       return;
     }
     // 领域层拒绝把某种类型用到一个分类都不剩，这里如实说明而不是让按钮看起来坏了。
@@ -137,12 +145,13 @@ export function CategoryManager({ ledger }: Props) {
   }
 
   function remove(category: CategoryDefinition) {
-    const failure = ledger.deleteCategoryAction(category.id);
-    if (!failure) {
+    const result = ledger.deleteCategoryAction(category.id);
+    if (result.ok) {
       setActionError("");
+      notifyChange(`已删除分类 ${category.name}`, result.undo);
       return;
     }
-    setActionError(deleteFailureMessage(category.name, failure));
+    setActionError(deleteFailureMessage(category.name, result.failure));
   }
 
   return (
