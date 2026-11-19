@@ -2,6 +2,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { TriangleAlertIcon } from "lucide-react";
+import { CategoryManager } from "@/src/components/category-manager";
 import { THEMES, type ThemeId } from "@/src/lib/themes";
 import { storedBytes } from "@/src/lib/storage";
 import type { LedgerApi } from "@/src/hooks/use-ledger";
@@ -97,6 +99,15 @@ export function SettingsSection({ ledger, onResetDemo, onWipe }: Props) {
                 浏览器拒绝写入本地存储，本次修改只保留在当前页面。
               </p>
             )}
+            {ledger.degraded && (
+              <p
+                role="status"
+                className="flex items-start gap-1.5 rounded-lg border border-warning/30 bg-warning/8 px-3 py-2 text-[13px] text-warning"
+              >
+                <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                本机数据的分类迁移没有走完，页面暂时用可恢复的安全视图展示，在导出备份之前请尽量避免不必要的改动，以免覆盖原始数据。
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" onClick={onResetDemo}>
                 恢复演示数据
@@ -112,6 +123,10 @@ export function SettingsSection({ ledger, onResetDemo, onWipe }: Props) {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="mt-3">
+        <CategoryManager ledger={ledger} />
       </div>
     </section>
   );

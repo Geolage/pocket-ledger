@@ -32,6 +32,23 @@ test("categories and colors follow income and expense rules", () => {
   assert.equal(ledger.categoryColor("不存在", "expense", BUILTIN_CATEGORIES), ledger.DEFAULT_COLOR);
 });
 
+test("shared category constants cannot be mutated by consumers", () => {
+  // 这三份是记录、预算与图表取值的共同键，被哪个模块原地改一下就全对不上了。
+  assert.ok(Object.isFrozen(ledger.EXPENSE_CATEGORIES));
+  assert.ok(Object.isFrozen(ledger.INCOME_CATEGORIES));
+  assert.ok(Object.isFrozen(ledger.CATEGORY_COLOR));
+
+  // 严格模式下原地赋值直接抛错，谁都改不动内置清单。
+  assert.throws(() => ledger.EXPENSE_CATEGORIES.push("宠物"), TypeError);
+  assert.throws(() => (ledger.CATEGORY_COLOR.餐饮 = "#f00"), TypeError);
+  assert.deepEqual([...ledger.EXPENSE_CATEGORIES].slice(0, 2), ["餐饮", "交通"]);
+
+  // 复制出来改是安全的：下发的是新数组，不影响模块里那一份。
+  const copy = [...ledger.EXPENSE_CATEGORIES];
+  copy.length = 0;
+  assert.equal(ledger.EXPENSE_CATEGORIES.length, 8);
+});
+
 test("categoryColor resolves by type so a shared name keeps two colors", () => {
   // 预算与颜色都按名字取值，同名跨类型必须靠 type 才分得开。
   const mixed = [

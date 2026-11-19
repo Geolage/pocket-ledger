@@ -10,8 +10,6 @@ import {
 } from "@/components/ui/select";
 import { PencilIcon, Trash2Icon } from "lucide-react";
 import {
-  EXPENSE_CATEGORIES,
-  INCOME_CATEGORIES,
   categoryColor,
   money,
   monthLabel,
@@ -84,7 +82,9 @@ export function BillsSection({ ledger, onAdd, onEdit, onDelete }: Props) {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">全部分类</SelectItem>
-              {[...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES].map((category) => (
+              {/* 候选来自账本的分类定义：启用的分类 + 本月记录里用过的分类，
+                  停用后仍留有账单的分类要能筛得出来。 */}
+              {ledger.filterCategoryOptions.map((category) => (
                 <SelectItem key={category} value={category}>
                   {category}
                 </SelectItem>

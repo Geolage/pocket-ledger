@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CircleAlertIcon } from "lucide-react";
-import { EXPENSE_CATEGORIES, cents, fromCents, money } from "@/src/lib/ledger";
+import { categoriesFor, cents, fromCents, money } from "@/src/lib/ledger";
 import type { LedgerApi } from "@/src/hooks/use-ledger";
 
 interface Props {
@@ -21,12 +21,19 @@ interface Props {
 }
 
 export function BudgetSection({ ledger, onClearBudget }: Props) {
-  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]);
+  // 预算只能挂在启用中的支出分类上：自定义分类进候选，停用的分类要跟着出去。
+  const options = categoriesFor("expense", ledger.categories);
+  const [picked, setPicked] = useState("");
+  const category = options.includes(picked) ? picked : options[0];
   const [amount, setAmount] = useState("");
   const [error, setError] = useState("");
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (!category) {
+      setError("请先在「分类管理」里启用至少一个支出分类。");
+      return;
+    }
     const raw = amount.replace(/[，,\s¥]/g, "");
     const value = Number(raw);
     if (raw === "" || Number.isNaN(value) || value < 0) {
@@ -102,12 +109,12 @@ export function BudgetSection({ ledger, onClearBudget }: Props) {
       >
         <div className="grid gap-1.5">
           <Label htmlFor="budget-category">分类</Label>
-          <Select value={category} onValueChange={setCategory}>
+          <Select value={category} onValueChange={setPicked}>
             <SelectTrigger id="budget-category" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {EXPENSE_CATEGORIES.map((item) => (
+              {options.map((item) => (
                 <SelectItem key={item} value={item}>
                   {item}
                 </SelectItem>

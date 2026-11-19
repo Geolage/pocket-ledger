@@ -23,7 +23,11 @@ export interface LedgerRecord {
 
 export type Budgets = Record<string, number>;
 
-export const EXPENSE_CATEGORIES: string[] = [
+/**
+ * 下面三份常量是记录、预算与图表取值的共同键，全模块共享。
+ * 冻结之后谁都改不动：项目是 ESM（严格模式），原地赋值直接抛 TypeError。
+ */
+export const EXPENSE_CATEGORIES: readonly string[] = Object.freeze([
   "餐饮",
   "交通",
   "购物",
@@ -32,12 +36,18 @@ export const EXPENSE_CATEGORIES: string[] = [
   "医疗",
   "教育",
   "其他",
-];
+]);
 
-export const INCOME_CATEGORIES: string[] = ["工资", "副业", "奖金", "理财", "其他收入"];
+export const INCOME_CATEGORIES: readonly string[] = Object.freeze([
+  "工资",
+  "副业",
+  "奖金",
+  "理财",
+  "其他收入",
+]);
 
 /** 分类 → 主题令牌。换主题时图表颜色自动跟随。 */
-export const CATEGORY_COLOR: Record<string, string> = {
+export const CATEGORY_COLOR: Readonly<Record<string, string>> = Object.freeze({
   餐饮: "var(--cat-1)",
   交通: "var(--cat-2)",
   购物: "var(--cat-3)",
@@ -51,7 +61,7 @@ export const CATEGORY_COLOR: Record<string, string> = {
   奖金: "var(--cat-4)",
   理财: "var(--cat-3)",
   其他收入: "var(--cat-2)",
-};
+});
 
 export const DEFAULT_COLOR = "var(--cat-3)";
 

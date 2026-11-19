@@ -19,9 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CircleAlertIcon } from "lucide-react";
-// 表单分类暂时取内置列表，接入账本的分类定义后再改为动态列表。
-import { BUILTIN_CATEGORIES } from "@/src/lib/categories";
 import {
+  type CategoryDefinition,
   type LedgerRecord,
   type RecordType,
   categoriesFor,
@@ -35,6 +34,8 @@ import type { RecordDraft } from "@/src/hooks/use-ledger";
 interface Props {
   open: boolean;
   record: LedgerRecord | null;
+  /** 账本里的分类定义：候选项只能取其中启用的那些，自定义分类也一起跟着走。 */
+  categories: CategoryDefinition[];
   onOpenChange: (open: boolean) => void;
   onSave: (draft: RecordDraft) => void;
 }
@@ -47,8 +48,9 @@ interface FormState {
   note: string;
 }
 
-function initialState(record: LedgerRecord | null): FormState {
+function initialState(record: LedgerRecord | null, categories: CategoryDefinition[]): FormState {
   if (record) {
+    // 分类停用也要保住这条记录自己的分类，否则旧账单既读不回也改不了。
     return {
       type: record.type,
       amount: String(record.amount),
@@ -60,20 +62,25 @@ function initialState(record: LedgerRecord | null): FormState {
   return {
     type: "expense",
     amount: "",
-    category: categoriesFor("expense", BUILTIN_CATEGORIES)[0],
+    category: categoriesFor("expense", categories)[0],
     date: dateKey(new Date()),
     note: "",
   };
 }
 
-export function RecordDialog({ open, record, onOpenChange, onSave }: Props) {
-  const [form, setForm] = useState<FormState>(() => initialState(record));
+export function RecordDialog({ open, record, categories, onOpenChange, onSave }: Props) {
+  const [form, setForm] = useState<FormState>(() => initialState(record, categories));
   const [errors, setErrors] = useState<{ amount?: string; date?: string }>({});
 
   const patch = (next: Partial<FormState>) => setForm((current) => ({ ...current, ...next }));
 
+  // 停用的分类不进候选；只有手上这条记录用它时，才把它留在选项里。
+  const enabled = categoriesFor(form.type, categories);
+  const options =
+    form.category && !enabled.includes(form.category) ? [form.category, ...enabled] : enabled;
+
   function changeType(type: RecordType) {
-    const list = categoriesFor(type, BUILTIN_CATEGORIES);
+    const list = categoriesFor(type, categories);
     patch({ type, category: list.includes(form.category) ? form.category : list[0] });
   }
 
@@ -164,7 +171,7 @@ export function RecordDialog({ open, record, onOpenChange, onSave }: Props) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {categoriesFor(form.type, BUILTIN_CATEGORIES).map((category) => (
+                {options.map((category) => (
                   <SelectItem key={category} value={category}>
                     {category}
                   </SelectItem>

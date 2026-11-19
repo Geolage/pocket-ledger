@@ -167,6 +167,7 @@ export default function App() {
         key={recordDialog.open ? (recordDialog.record?.id ?? "new") : "closed"}
         open={recordDialog.open}
         record={recordDialog.record}
+        categories={ledger.categories}
         onOpenChange={(open) => setRecordDialog((current) => ({ ...current, open }))}
         onSave={saveRecord}
       />
