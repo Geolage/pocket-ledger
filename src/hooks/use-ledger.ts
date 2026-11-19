@@ -23,12 +23,19 @@ import {
   isValidRecord,
   newId,
   recordsOfMonth,
+  removeRecordById,
   shiftMonth,
   startOfMonth,
   summarize,
 } from "@/src/lib/ledger";
 import { type ThemeId, applyTheme } from "@/src/lib/themes";
-import { type LedgerState, demoState, loadState, saveState } from "@/src/lib/storage";
+import {
+  type LedgerState,
+  demoState,
+  ledgerStatesEqual,
+  loadState,
+  saveState,
+} from "@/src/lib/storage";
 
 export interface RecordDraft {
   type: RecordType;
@@ -64,7 +71,8 @@ interface UndoSnapshot extends LedgerSnapshot {
 
 /**
  * 撤销一次改动：把改动前的整套状态写回去，还原成功返回 true。
- * 只有一步可撤，而且只认最近那次成功的改动——被后续改动接管过的动作返回 false，不会把账本倒回更远的快照。
+ * 只有一步可撤，而且只认最近那次成功的改动——之后的任何一次改动（哪怕它自己没留下撤销）
+ * 都会把这里这一步作废，返回 false，不会把账本倒回更远的快照。
  */
 export type UndoAction = () => boolean;
 
@@ -79,16 +87,49 @@ export type CategoryDeleteResult =
 export const LEDGER_TOAST_ID = "ledger-toast";
 
 /**
- * 改动结果的统一提示：拿到撤销动作才挂「撤销」按钮。
+ * 撤销只在提示还看得见的那段时间里用得上：默认的 4 秒来不及让人读完再决定，
+ * 所以挂着「撤销」的那条单独停留 10 秒。确认框里的说明也照这个数写，两处必须是同一件事。
+ */
+export const UNDO_TOAST_DURATION_MS = 10_000;
+
+/** 撤销窗口以秒为单位说法一致：界面文案直接由它算出来，免得话和实现对不上。 */
+export const UNDO_WINDOW_SECONDS = UNDO_TOAST_DURATION_MS / 1000;
+
+/** 点下去却没还回任何东西时要说清原因：静默失败的按钮会让人以为还要再点两下。 */
+const UNDO_STALE_MESSAGE = "这一步已经无法撤销，后续改动已经接管了它。";
+
+/**
+ * 按下「撤销」：还回来了就把提示收起，已经过期了就换成一句失败说明。
+ * 两种情况都不留那颗点不动的按钮。
+ */
+function runUndo(undo: UndoAction, event?: { preventDefault(): void }): void {
+  if (undo()) {
+    toast.dismiss(LEDGER_TOAST_ID);
+    return;
+  }
+  // preventDefault 是与 sonner 的约定：按钮默认会在回调结束后收起提示，
+  // 这里要的恰恰是把这条失败说明留在屏幕上。
+  event?.preventDefault();
+  toast.error(UNDO_STALE_MESSAGE, {
+    id: LEDGER_TOAST_ID,
+    // 同 id 的提示按字段合并：这两个键要显式清掉，否则过期提示会继承上一条的按钮和 10 秒时长。
+    action: undefined,
+    duration: undefined,
+  });
+}
+
+/**
+ * 改动结果的统一提示：拿到撤销动作才挂「撤销」按钮，并给足点到它的时间。
  * 被领域层拒掉、或者压根没改成的操作返回 null，那种时候挂一个点了没反应的按钮比不挂更糟。
  *
- * action 要显式写成 undefined：同 id 的提示是按字段合并的，省掉这个键就会把上一步的
- * 「撤销」按钮原样留在新的那句话上。
+ * action 与 duration 要显式写成 undefined：同 id 的提示是按字段合并的，省掉这些键就会把
+ * 上一步的「撤销」按钮和它的 10 秒时长原样留在新的那句话上。
  */
 export function notifyChange(message: string, undo: UndoAction | null = null): void {
   toast(message, {
     id: LEDGER_TOAST_ID,
-    action: undo ? { label: "撤销", onClick: () => undo() } : undefined,
+    duration: undo ? UNDO_TOAST_DURATION_MS : undefined,
+    action: undo ? { label: "撤销", onClick: (event) => runUndo(undo, event) } : undefined,
   });
 }
 
@@ -96,6 +137,21 @@ const EMPTY_FILTERS: Filters = { type: "all", category: "all", keyword: "" };
 
 /** 与 React 的 setter 同形：既收新值，也收「拿当下最新值算下一个值」的函数。 */
 type Updater<T> = T | ((current: T) => T);
+
+/** 筛选是否就是「没筛」：条件对象每次都是新引用，所以只能按字段比。 */
+function isDefaultFilters(filters: Filters): boolean {
+  return (
+    filters.type === EMPTY_FILTERS.type &&
+    filters.category === EMPTY_FILTERS.category &&
+    filters.keyword === EMPTY_FILTERS.keyword
+  );
+}
+
+/** 月份视图是否停在当月：Date 同样是新对象，比年月而不比引用。 */
+function isCurrentMonthView(view: Date): boolean {
+  const now = new Date();
+  return view.getFullYear() === now.getFullYear() && view.getMonth() === now.getMonth();
+}
 
 export function useLedger() {
   const [initial] = useState(() => loadState());
@@ -135,67 +191,105 @@ export function useLedger() {
     setDegraded(false);
   }, []);
 
+  // 只撤一步：这里存的就是「最近一次成功的破坏性改动」，后来的改动会把它整个换掉，
+  // 所以不需要历史栈，也不需要把每一步的快照留着。
+  const undoRef = useRef<UndoAction | null>(null);
+
+  /**
+   * 上一步撤销作废的唯一入口：所有 write* 在值真的换了时都会经过这里。
+   * 「撤销」按钮只有在提示还看得见时才点得到，所以作废的同时要把那条提示收掉——
+   * 留着一条只会报错的按钮，比用户压根不知道已经错过了更容易伤人。
+   * 本来就没有待撤的改动时什么都不做，免得把别处来的普通提示一起误删。
+   */
+  const invalidateUndo = useCallback(() => {
+    if (undoRef.current === null) return;
+    undoRef.current = null;
+    toast.dismiss(LEDGER_TOAST_ID);
+  }, []);
+
   /**
    * 三份写入共用的规矩：updater 收到当下最新的那一份，值换了才算一次真正的改动。
    * 领域层把改动拒掉时 updater 原样返回（重名的新增、停用最后一个启用分类），
    * 那种情况下既不该重渲染，更不该放行降级状态——一笔没成立的改动没有资格覆盖盘里的原始数据。
+   * 值换了的同时也要把上一步的撤销作废：撤销只承诺还原「最近那次改动」，
+   * 账本已经走远还留着按钮，等于允许用户把中间那几步一起抹掉。
    */
   const writeRecords = useCallback(
     (update: (current: LedgerRecord[]) => LedgerRecord[]) => {
       const next = update(recordsRef.current);
-      if (next !== recordsRef.current) releaseRawState();
+      if (next !== recordsRef.current) {
+        releaseRawState();
+        invalidateUndo();
+      }
       recordsRef.current = next;
       setRecordsState(next);
       return next;
     },
-    [releaseRawState],
+    [releaseRawState, invalidateUndo],
   );
 
   const writeBudgets = useCallback(
     (update: (current: Budgets) => Budgets) => {
       const next = update(budgetsRef.current);
-      if (next !== budgetsRef.current) releaseRawState();
+      if (next !== budgetsRef.current) {
+        releaseRawState();
+        invalidateUndo();
+      }
       budgetsRef.current = next;
       setBudgetsState(next);
       return next;
     },
-    [releaseRawState],
+    [releaseRawState, invalidateUndo],
   );
 
   const writeCategories = useCallback(
     (update: (current: CategoryDefinition[]) => CategoryDefinition[]) => {
       const next = update(categoriesRef.current);
-      if (next !== categoriesRef.current) releaseRawState();
+      if (next !== categoriesRef.current) {
+        releaseRawState();
+        invalidateUndo();
+      }
       categoriesRef.current = next;
       setCategoriesState(next);
       return next;
     },
-    [releaseRawState],
+    [releaseRawState, invalidateUndo],
   );
 
-  /** 主题落在 localStorage 里，与那三份数据同等待遇：换它就算一次真正的改动。 */
+  /** 主题落在 localStorage 里，与那三份数据同等待遇：换了才算一次真正的改动，也才作废上一步撤销。 */
   const writeTheme = useCallback(
     (next: ThemeId) => {
+      if (next === themeRef.current) return;
       releaseRawState();
+      invalidateUndo();
       themeRef.current = next;
       setThemeState(next);
     },
-    [releaseRawState],
+    [releaseRawState, invalidateUndo],
   );
 
   // 筛选与月份只决定这一屏看什么，不落盘，所以它们不放行降级状态；
+  // 但它们同样是用户看得见的位置，动了上一步的撤销就跟着过期——撤销要还的是「按下按钮那一刻」的那一屏。
   // 留 ref 是因为撤销快照要当场读到用户当下选着的条件与月份。
-  const writeFilters = useCallback((update: Updater<Filters>) => {
-    const next = typeof update === "function" ? update(filtersRef.current) : update;
-    filtersRef.current = next;
-    setFiltersState(next);
-  }, []);
+  const writeFilters = useCallback(
+    (update: Updater<Filters>) => {
+      const next = typeof update === "function" ? update(filtersRef.current) : update;
+      if (next !== filtersRef.current) invalidateUndo();
+      filtersRef.current = next;
+      setFiltersState(next);
+    },
+    [invalidateUndo],
+  );
 
-  const writeView = useCallback((update: Updater<Date>) => {
-    const next = typeof update === "function" ? update(viewRef.current) : update;
-    viewRef.current = next;
-    setViewState(next);
-  }, []);
+  const writeView = useCallback(
+    (update: Updater<Date>) => {
+      const next = typeof update === "function" ? update(viewRef.current) : update;
+      if (next !== viewRef.current) invalidateUndo();
+      viewRef.current = next;
+      setViewState(next);
+    },
+    [invalidateUndo],
+  );
 
   /**
    * 一份快照整套写回：跨状态的改动（改名、删除）由领域层一次算出三份结果，
@@ -212,10 +306,6 @@ export function useLedger() {
     },
     [writeRecords, writeBudgets, writeCategories],
   );
-
-  // 只撤一步：这里存的就是「最近一次成功的破坏性改动」，后来的改动会把它整个换掉，
-  // 所以不需要历史栈，也不需要把每一步的快照留着。
-  const undoRef = useRef<UndoAction | null>(null);
 
   /** 当场从六份 ref 读出一份快照：记的是最新意图，而不是某个旧闭包里的副本。 */
   const takeSnapshot = useCallback(
@@ -247,8 +337,10 @@ export function useLedger() {
 
   /**
    * 只有改动真的成功才建撤销动作：把快照封进闭包，并登记成当前这一步。
-   * 引用比对就是「还是不是最近那次改动」——被后续改动接管过的旧按钮点下去只如实返回 false，
-   * 不会把账本倒回更远的那份快照（界面上那种按钮本来也留不住，提示是按 id 顶掉的）。
+   * 引用比对就是「还是不是最近那次改动」——被后续改动接管过的旧按钮点下去只如实返回 false。
+   *
+   * 调用时机有讲究：必须放在自己那批 write* 之后。writer 在值真的换了时会先把这一步缴械，
+   * 先登记再写入就会把自己刚记下的快照当场作废，按钮也就永远点不动了。
    */
   const armUndo = useCallback(
     (snapshot: UndoSnapshot): UndoAction => {
@@ -370,15 +462,22 @@ export function useLedger() {
 
   /**
    * 删除记录是破坏性改动：动手前记下整套快照，真的删掉至少一条才给出撤销动作。
-   * id 已经不在列表里（比如同一笔被删了两次）就是什么都没动，那种情况返回 null。
+   * id 已经不在列表里（比如同一笔被删了两次）就是什么都没动：那种情况返回 null，
+   * 上一步的撤销也一并收掉——用户又动了一次手，那颗按钮的故事到此为止。
    */
   const deleteRecord = useCallback(
     (id: string): UndoAction | null => {
       const before = takeSnapshot();
-      const next = writeRecords((current) => current.filter((record) => record.id !== id));
-      return next === before.records ? null : armUndo(before);
+      // 存在与否交给领域层判定：filter 每次都造新数组，比引用分不出「删掉一笔」和「没有这一笔」。
+      const next = removeRecordById(before.records, id);
+      if (!next) {
+        invalidateUndo();
+        return null;
+      }
+      writeRecords(() => next);
+      return armUndo(before);
     },
-    [takeSnapshot, writeRecords, armUndo],
+    [takeSnapshot, invalidateUndo, writeRecords, armUndo],
   );
 
   const setBudget = useCallback(
@@ -395,7 +494,10 @@ export function useLedger() {
       const name = category.trim();
       const before = takeSnapshot();
       // 先把「没有这条预算」挡在写入之前：预算表每次都造新对象，光比引用分不出改没改。
-      if (!Object.hasOwn(before.budgets, name)) return null;
+      if (!Object.hasOwn(before.budgets, name)) {
+        invalidateUndo();
+        return null;
+      }
       writeBudgets((current) => {
         const next = { ...current };
         delete next[name];
@@ -403,32 +505,68 @@ export function useLedger() {
       });
       return armUndo(before);
     },
-    [takeSnapshot, writeBudgets, armUndo],
+    [takeSnapshot, invalidateUndo, writeBudgets, armUndo],
   );
 
-  const resetDemo = useCallback((): UndoAction => {
+  /**
+   * 恢复演示是整套替换，替换掉东西才留一步撤销。
+   * 演示数据每次都重新生成记录 id，所以「换没换」比的是用户看得见的那几项（见 ledgerStatesEqual）；
+   * 月份与筛选也在这一步的范围内，停在当月、没筛东西，才算真的没得可换。
+   */
+  const resetDemo = useCallback((): UndoAction | null => {
     const before = takeSnapshot();
-    const seeded = demoState(theme);
+    const seeded = demoState(before.theme);
+    if (
+      ledgerStatesEqual(
+        {
+          records: before.records,
+          budgets: before.budgets,
+          theme: before.theme,
+          categories: before.categories,
+        },
+        seeded,
+      ) &&
+      isDefaultFilters(before.filters) &&
+      isCurrentMonthView(before.view)
+    ) {
+      invalidateUndo();
+      return null;
+    }
     // 演示数据连分类定义一起回到规范内置项，否则改名、停用的残留会跟着演示账本一起留着。
     commitSnapshot(seeded);
     writeFilters(EMPTY_FILTERS);
     writeView(startOfMonth(new Date()));
     return armUndo(before);
-  }, [takeSnapshot, theme, commitSnapshot, writeFilters, writeView, armUndo]);
+  }, [takeSnapshot, invalidateUndo, commitSnapshot, writeFilters, writeView, armUndo]);
 
   /**
    * 清空只动记录与预算，但撤销按整套快照还回来：被清空一起抹掉的筛选条件也跟着回到清空之前。
    * 主题与月份视图不在清空的范围内，快照里记的就是当下这两份，写回等于没动它们。
+   * 本来就没有记录与预算、筛选与月份也停在默认位置时，清空什么都没动：返回 null，
+   * 不给一个点下去只会说「已经无法撤销」的按钮。
    */
-  const wipeAll = useCallback((): UndoAction => {
+  const wipeAll = useCallback((): UndoAction | null => {
     const before = takeSnapshot();
+    if (
+      before.records.length === 0 &&
+      Object.keys(before.budgets).length === 0 &&
+      isDefaultFilters(before.filters) &&
+      isCurrentMonthView(before.view)
+    ) {
+      invalidateUndo();
+      return null;
+    }
     writeRecords(() => []);
     writeBudgets(() => ({}));
     writeFilters(EMPTY_FILTERS);
     return armUndo(before);
-  }, [takeSnapshot, writeRecords, writeBudgets, writeFilters, armUndo]);
+  }, [takeSnapshot, invalidateUndo, writeRecords, writeBudgets, writeFilters, armUndo]);
 
-  /** 新增成功返回撤销动作，被领域层拒掉返回 null：界面据此决定要不要挂上「撤销」按钮。 */
+  /**
+   * 新增成功返回撤销动作，被领域层拒掉返回 null：界面据此决定要不要挂上「撤销」按钮。
+   * 被拒掉的那次点击同样动了用户的界面（哪怕什么都没写成），上一步的撤销窗口就此结束——
+   * 撤销只认「最近那次改动」，中间隔了一次操作就不该再假装还认。
+   */
   const addCategory = useCallback(
     (type: RecordType, name: string): UndoAction | null => {
       const before = takeSnapshot();
@@ -438,9 +576,13 @@ export function useLedger() {
         return created ? [...current, created] : current;
       });
       // createCategory 被拒时 updater 原样返回，引用没变就说明这条分类没加上。
-      return next === before.categories ? null : armUndo(before);
+      if (next === before.categories) {
+        invalidateUndo();
+        return null;
+      }
+      return armUndo(before);
     },
-    [takeSnapshot, writeCategories, armUndo],
+    [takeSnapshot, invalidateUndo, writeCategories, armUndo],
   );
 
   // 改名会连带动记录与预算：三份状态一起从快照读、再整套写回，
@@ -449,11 +591,14 @@ export function useLedger() {
     (id: string, name: string): UndoAction | null => {
       const before = takeSnapshot();
       const result = renameCategory(before.categories, before.records, before.budgets, id, name);
-      if (!result) return null;
+      if (!result) {
+        invalidateUndo();
+        return null;
+      }
       commitSnapshot(result);
       return armUndo(before);
     },
-    [takeSnapshot, commitSnapshot, armUndo],
+    [takeSnapshot, invalidateUndo, commitSnapshot, armUndo],
   );
 
   const toggleCategoryAction = useCallback(
@@ -461,9 +606,13 @@ export function useLedger() {
       const before = takeSnapshot();
       // toggleCategory 原样返回表示「最后一个启用分类不能再停用」，引用不变就是被拒了。
       const next = writeCategories((current) => toggleCategory(current, id));
-      return next === before.categories ? null : armUndo(before);
+      if (next === before.categories) {
+        invalidateUndo();
+        return null;
+      }
+      return armUndo(before);
     },
-    [takeSnapshot, writeCategories, armUndo],
+    [takeSnapshot, invalidateUndo, writeCategories, armUndo],
   );
 
   /**
@@ -474,11 +623,14 @@ export function useLedger() {
     (id: string): CategoryDeleteResult => {
       const before = takeSnapshot();
       const outcome = deleteUnusedCategory(before.categories, before.records, before.budgets, id);
-      if (!outcome.ok) return outcome;
+      if (!outcome.ok) {
+        invalidateUndo();
+        return outcome;
+      }
       commitSnapshot(outcome);
       return { ok: true, undo: armUndo(before) };
     },
-    [takeSnapshot, commitSnapshot, armUndo],
+    [takeSnapshot, invalidateUndo, commitSnapshot, armUndo],
   );
 
   const monthCount = monthRecords.length;

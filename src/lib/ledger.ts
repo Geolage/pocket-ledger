@@ -184,6 +184,16 @@ export function recordsOfMonth(
   });
 }
 
+/**
+ * 按 id 删掉一笔：真的删掉了才返回新列表，找不到就返回 null。
+ * `filter` 每次都造一个新数组，光比引用分不出「删掉了一笔」和「压根没有这一笔」，
+ * 而调用方要靠这个区别决定给不给撤销动作，所以判定得留在这里。
+ */
+export function removeRecordById(records: LedgerRecord[], id: string): LedgerRecord[] | null {
+  const next = records.filter((record) => record.id !== id);
+  return next.length === records.length ? null : next;
+}
+
 export interface Summary {
   income: number;
   expense: number;

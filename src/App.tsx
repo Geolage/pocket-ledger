@@ -13,8 +13,19 @@ import { RecordDialog } from "@/src/components/record-dialog";
 import { SettingsSection } from "@/src/components/settings-section";
 import { SummaryCards } from "@/src/components/summary-cards";
 import { useActiveSection } from "@/src/hooks/use-active-section";
-import { notifyChange, useLedger, type RecordDraft } from "@/src/hooks/use-ledger";
+import {
+  notifyChange,
+  UNDO_WINDOW_SECONDS,
+  useLedger,
+  type RecordDraft,
+} from "@/src/hooks/use-ledger";
 import { describeRecord, type LedgerRecord, monthLabel } from "@/src/lib/ledger";
+
+/**
+ * 撤销窗口只在提示还看得见的那段时间里成立，而且下一次改动就会把它结束掉。
+ * 确认框里承诺的是这件事，说的话就得和提示的时长出自同一个数，不能各写各的。
+ */
+const UNDO_HINT = `提示里的「撤销」只有 ${UNDO_WINDOW_SECONDS} 秒有效，之后再改动一次账本它就过期。`;
 
 export default function App() {
   const ledger = useLedger();
@@ -42,8 +53,8 @@ export default function App() {
     setConfirm({
       title: "确认删除？",
       body: describeRecord(record),
-      // 只承诺真给得起的那一步：提示里有一个「撤销」，再往后的改动就会把它顶掉。
-      hint: "删除后本月统计会立即重新计算，提示里的「撤销」可以还原这一步。",
+      // 只承诺真给得起的那一步，并且说清它有多短：提示一消失、或者再动一次账本，就撤不回来了。
+      hint: `删除后本月统计会立即重新计算。${UNDO_HINT}`,
       okLabel: "删除",
       destructive: true,
       onConfirm: () => {
@@ -60,7 +71,7 @@ export default function App() {
     setConfirm({
       title: "取消该分类预算？",
       body: `${category} 的每月预算将被移除，本月概览不再统计它。`,
-      hint: "账单本身不受影响。",
+      hint: `账单本身不受影响。${UNDO_HINT}`,
       okLabel: "取消预算",
       onConfirm: () => {
         notifyChange(`${category} 的预算已取消`, ledger.clearBudget(category));
@@ -72,7 +83,7 @@ export default function App() {
     setConfirm({
       title: "恢复演示数据？",
       body: "当前账本会被替换为一套虚构的演示账单，主题设置保留。",
-      hint: "演示数据的金额、商户与人物均为虚构。",
+      hint: `演示数据的金额、商户与人物均为虚构。${UNDO_HINT}`,
       okLabel: "恢复演示",
       destructive: true,
       onConfirm: () => {
@@ -84,8 +95,8 @@ export default function App() {
   function askWipe() {
     setConfirm({
       title: "清空所有数据？",
-      body: "将删除本机保存的全部账单与预算，除了提示里的「撤销」之外无法找回。",
-      hint: "之后可以用「恢复演示数据」重新载入示例。",
+      body: "将删除本机保存的全部账单与预算，只能靠提示里的「撤销」还原这一步。",
+      hint: `${UNDO_HINT}之后可以用「恢复演示数据」重新载入示例。`,
       okLabel: "清空",
       destructive: true,
       onConfirm: () => {

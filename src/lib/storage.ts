@@ -105,6 +105,59 @@ export function safeMigratedState(input: unknown): LedgerState {
   };
 }
 
+/**
+ * 记录的 id 每次生成都不同（见 newId），它也不是用户看得见的内容，所以比较时略过。
+ * 其余字段和排列顺序都算数：顺序决定账单里的上下排列，换了顺序就是换了这一屏。
+ */
+function sameRecords(left: LedgerRecord[], right: LedgerRecord[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((record, index) => {
+    const other = right[index];
+    return (
+      record.type === other.type &&
+      record.amount === other.amount &&
+      record.category === other.category &&
+      record.date === other.date &&
+      record.note === other.note &&
+      record.createdAt === other.createdAt
+    );
+  });
+}
+
+function sameBudgets(left: Budgets, right: Budgets): boolean {
+  const names = Object.keys(left);
+  if (names.length !== Object.keys(right).length) return false;
+  return names.every((name) => Object.hasOwn(right, name) && left[name] === right[name]);
+}
+
+function sameCategories(left: CategoryDefinition[], right: CategoryDefinition[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((category, index) => {
+    const other = right[index];
+    return (
+      category.id === other.id &&
+      category.type === other.type &&
+      category.name === other.name &&
+      category.color === other.color &&
+      category.disabled === other.disabled &&
+      category.builtin === other.builtin
+    );
+  });
+}
+
+/**
+ * 两份落盘状态是否等价：破坏性操作动手前要比一次，什么都没变就不该留下撤销窗口。
+ * 主题、记录、预算、分类四份都要一致，缺一份都算真的改动。
+ */
+export function ledgerStatesEqual(left: LedgerState, right: LedgerState): boolean {
+  return (
+    left.theme === right.theme &&
+    sameRecords(left.records, right.records) &&
+    sameBudgets(left.budgets, right.budgets) &&
+    sameCategories(left.categories, right.categories)
+  );
+}
+
 export function loadState(): StorageResult {
   // available 只表达浏览器肯不肯读写 localStorage，与迁移成不成功无关，UI 的提示才有依据。
   const available = storageWorks();

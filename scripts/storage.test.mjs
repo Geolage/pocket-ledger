@@ -6,6 +6,8 @@ import { DEFAULT_THEME } from "../src/lib/themes.ts";
 import {
   STORAGE_KEY,
   canonicalCategories,
+  demoState,
+  ledgerStatesEqual,
   loadState,
   normalizeLedgerState,
   safeMigratedState,
@@ -231,4 +233,52 @@ test("canonicalCategories hands out mutable copies of the built-ins", () => {
   assert.ok(!Object.isFrozen(list[0]));
   list[0].disabled = true;
   assert.equal(BUILTIN_CATEGORIES[0].disabled, false);
+});
+
+/* 恢复演示/清空是不是真的没得可换，全靠 ledgerStatesEqual 说话，所以它自己得先说得准。 */
+const stateSlice = (overrides = {}) => ({
+  records: [record({ id: "a" }), record({ id: "b", category: "交通", amount: 20 })],
+  budgets: { 餐饮: 100 },
+  theme: DEFAULT_THEME,
+  categories: canonicalCategories(),
+  ...overrides,
+});
+
+test("ledgerStatesEqual 只看用户看得见的内容，不看每次重新生成的 id", () => {
+  const freshIds = stateSlice({
+    records: [record({ id: "x" }), record({ id: "y", category: "交通", amount: 20 })],
+    categories: canonicalCategories(),
+  });
+  assert.equal(ledgerStatesEqual(stateSlice(), freshIds), true);
+
+  // 演示数据每调一次就换一批 id：比 id 的话这里永远说「换了东西」，
+  // 于是「恢复演示」即便什么都没改动也照样留一个撤不回来的按钮。
+  assert.equal(ledgerStatesEqual(demoState(), demoState()), true);
+});
+
+test("ledgerStatesEqual 分得清金额、备注、顺序、预算、分类与主题的改动", () => {
+  const base = stateSlice();
+  const [first, second] = base.records;
+
+  const changes = [
+    stateSlice({ records: [record({ id: "a", amount: 11 }), second] }),
+    stateSlice({ records: [record({ id: "a", note: "改了备注" }), second] }),
+    // 顺序同样算内容：账单列表就按这个顺序排。
+    stateSlice({ records: [second, first] }),
+    stateSlice({ records: [first] }),
+    stateSlice({ records: [] }),
+    stateSlice({ budgets: { 餐饮: 100, 交通: 50 } }),
+    stateSlice({ budgets: {} }),
+    stateSlice({ theme: "mist" }),
+  ];
+  for (const next of changes) assert.equal(ledgerStatesEqual(base, next), false);
+
+  const disabled = stateSlice();
+  disabled.categories[0].disabled = true;
+  assert.equal(ledgerStatesEqual(base, disabled), false);
+});
+
+test("ledgerStatesEqual 把两份空状态看成一致", () => {
+  const empty = stateSlice({ records: [], budgets: {} });
+  assert.equal(ledgerStatesEqual(empty, stateSlice({ records: [], budgets: {} })), true);
 });

@@ -1051,3 +1051,141 @@ test("被领域层挡下的停用不给撤销按钮", async ({ page }) => {
   await expect(manager.getByRole("alert")).toContainText("至少保留一个启用分类");
   await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
 });
+
+/** 按界面流程删掉一笔：确认框走到底，返回时那条提示里的「撤销」已经挂好。 */
+async function deleteWithConfirm(page: Page, note: string) {
+  await page
+    .getByRole("listitem")
+    .filter({ hasText: note })
+    .getByRole("button", { name: /^删除/ })
+    .click();
+  await page
+    .getByRole("dialog", { name: "确认删除？" })
+    .getByRole("button", { name: "删除" })
+    .click();
+  await expect(page.getByText(note)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();
+}
+
+test("删除记录后换主题：撤销窗口跟着这次改动一起结束", async ({ page }) => {
+  await addExpense(page, "31.00", "换主题前删掉的那笔");
+  await deleteWithConfirm(page, "换主题前删掉的那笔");
+
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  await page.getByText("L2 淡雾蓝", { exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "mist");
+
+  // 主题落在 localStorage 里，和记一笔、删一笔是同等待遇的改动：
+  // 撤销只认最近那次改动，账本已经走到主题这一步，上一步的按钮就不能再留着。
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+});
+
+test("删除记录后翻看别的月份：撤销窗口跟着这次改动一起结束", async ({ page }) => {
+  const range = page.getByText(/^统计范围：/);
+  await addExpense(page, "31.00", "换月份前删掉的那笔");
+  await deleteWithConfirm(page, "换月份前删掉的那笔");
+
+  const currentMonth = (await range.textContent()) ?? "";
+  await page.getByRole("button", { name: "上一个月" }).click();
+  await expect(range).not.toHaveText(currentMonth);
+
+  // 月份不落盘，但它正是撤销要一起还回来的那一屏：用户已经翻走，这一步就不该再撤。
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+});
+
+test("取消预算后保存新预算：撤销窗口跟着这次改动一起结束", async ({ page }) => {
+  const budget = page.locator("#budget");
+  await budget.getByLabel("每月预算（元）").fill("1");
+  await budget.getByRole("button", { name: "保存预算" }).click();
+
+  await budget.getByRole("button", { name: "取消该分类预算" }).click();
+  await page
+    .getByRole("dialog", { name: "取消该分类预算？" })
+    .getByRole("button", { name: "取消预算" })
+    .click();
+  await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();
+
+  await budget.getByLabel("每月预算（元）").fill("2");
+  await budget.getByRole("button", { name: "保存预算" }).click();
+  // 保存预算不弹提示，也就没有一条顶掉旧提示的普通消息：撤销窗口得由改动自己收掉。
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+});
+
+test("被领域层挡下的停用同样结束撤销窗口", async ({ page }) => {
+  await page.evaluate(() => {
+    interface StoredCategory {
+      type: "expense" | "income";
+      disabled: boolean;
+    }
+    const state = JSON.parse(localStorage.getItem("pocket-ledger.v1") ?? "{}") as {
+      categories: StoredCategory[];
+    };
+    // 支出只留第一项可用：下面那颗停用按钮点下去必然被领域层拒掉。
+    let kept = false;
+    state.categories = state.categories.map((category) => {
+      if (category.type !== "expense") return category;
+      const next = { ...category, disabled: kept };
+      kept = true;
+      return next;
+    });
+    localStorage.setItem("pocket-ledger.v1", JSON.stringify(state));
+  });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
+
+  await addExpense(page, "28.00", "停用失败前删掉的那笔");
+  await deleteWithConfirm(page, "停用失败前删掉的那笔");
+
+  const manager = page.getByRole("region", { name: "分类管理" });
+  await expect(manager.getByRole("button", { name: /^停用/ })).toHaveCount(1);
+  await manager.getByRole("button", { name: /^停用/ }).click();
+  await expect(manager.getByRole("alert")).toContainText("至少保留一个启用分类");
+
+  // 这次停用被领域层拒掉，一个字都没写成，但用户确实动过手：上一步的撤销就此过期。
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+});
+
+test("撤销成功后提示收起，不留一颗点不动的按钮", async ({ page }) => {
+  await addExpense(page, "31.00", "撤销后收起的那笔");
+  await deleteWithConfirm(page, "撤销后收起的那笔");
+  await expect(page.getByText("已删除 1 笔记录")).toBeVisible();
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByText("撤销后收起的那笔")).toBeVisible();
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+  await expect(page.getByText("已删除 1 笔记录")).toHaveCount(0);
+});
+
+test("已经空了再清空一次不给撤销按钮", async ({ page }) => {
+  const wipe = async () => {
+    await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+    await page.getByRole("button", { name: "清空所有数据" }).click();
+    await page
+      .getByRole("dialog", { name: "清空所有数据？" })
+      .getByRole("button", { name: "清空" })
+      .click();
+  };
+
+  await wipe();
+  await expect(page.getByText(/还没有记录/).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();
+
+  await wipe();
+  // 账本本来就是空的：这一次什么都没删掉，自然也没有可撤的一步。
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+  await expect(page.getByText(/还没有记录/).first()).toBeVisible();
+});
+
+test("账本已经是演示数据时，恢复演示不给撤销按钮", async ({ page }) => {
+  // 首次进来加载的就是同一套演示数据：连着按两次「恢复演示」，第二次一个字都不该改。
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: "恢复演示数据" }).click();
+  await page
+    .getByRole("dialog", { name: "恢复演示数据？" })
+    .getByRole("button", { name: "恢复演示" })
+    .click();
+
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+  await expect(page.getByText(/显示 \d+ \/ \d+ 笔/)).toBeVisible();
+  await expect(page.getByText(/显示 0 \/ 0 笔/)).toHaveCount(0);
+});

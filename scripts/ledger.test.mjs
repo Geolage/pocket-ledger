@@ -266,6 +266,28 @@ test("budgetSummary skips disabled categories in rows, totals and over count", (
   assert.equal(summary.overCount, 0);
 });
 
+test("removeRecordById 找不到那笔时返回 null，而不是一个内容相同的新数组", () => {
+  const records = [record({ id: "a" }), record({ id: "b" })];
+
+  // filter 每次都造新数组，光比引用分不出「删掉了一笔」和「压根没有这一笔」。
+  // 给不给撤销动作就看这个区别，所以判定得留在领域层。
+  assert.equal(ledger.removeRecordById(records, "missing"), null);
+  assert.equal(ledger.removeRecordById([], "a"), null);
+  assert.equal(records.length, 2);
+});
+
+test("removeRecordById 只去掉命中的那一笔，不动传进去的列表", () => {
+  const records = [record({ id: "a" }), record({ id: "b" })];
+  const next = ledger.removeRecordById(records, "a");
+
+  assert.ok(next);
+  assert.deepEqual(
+    next.map((item) => item.id),
+    ["b"],
+  );
+  assert.equal(records.length, 2);
+});
+
 test("isValidRecord rejects incomplete or impossible records", () => {
   assert.equal(ledger.isValidRecord(record()), true);
   assert.equal(ledger.isValidRecord(record({ amount: 0 })), false);
