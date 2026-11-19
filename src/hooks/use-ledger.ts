@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  categoryOptions,
+  createCategory,
+  deleteUnusedCategory,
+  renameCategory,
+  toggleCategory,
+} from "@/src/lib/categories";
+import {
   type Budgets,
+  type CategoryDefinition,
   type LedgerRecord,
   type RecordType,
   budgetSummary,
@@ -39,6 +47,7 @@ export function useLedger() {
   const [records, setRecords] = useState<LedgerRecord[]>(initial.state.records);
   const [budgets, setBudgets] = useState<Budgets>(initial.state.budgets);
   const [theme, setThemeState] = useState<ThemeId>(initial.state.theme);
+  const [categories, setCategories] = useState<CategoryDefinition[]>(initial.state.categories);
   const [storageAvailable, setStorageAvailable] = useState(initial.available);
   const [view, setView] = useState(() => startOfMonth(new Date()));
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
@@ -49,11 +58,11 @@ export function useLedger() {
 
   // 单一写入点：任何状态变化都落盘，失败时如实提示而不是假装保存成功。
   useEffect(() => {
-    const ok = saveState({ records, budgets, theme });
+    const ok = saveState({ records, budgets, theme, categories });
     // The write result is an external-system outcome, so surface it in the UI.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setStorageAvailable(ok);
-  }, [records, budgets, theme]);
+  }, [records, budgets, theme, categories]);
 
   const year = view.getFullYear();
   const month = view.getMonth();
@@ -65,7 +74,14 @@ export function useLedger() {
     () => dailyExpenses(monthRecords, year, month),
     [monthRecords, year, month],
   );
-  const budget = useMemo(() => budgetSummary(monthRecords, budgets), [monthRecords, budgets]);
+  const budget = useMemo(
+    () => budgetSummary(monthRecords, budgets, categories),
+    [monthRecords, budgets, categories],
+  );
+  const filterCategoryOptions = useMemo(
+    () => categoryOptions(categories, monthRecords),
+    [categories, monthRecords],
+  );
 
   const visibleRecords = useMemo(() => {
     const keyword = filters.keyword.trim().toLowerCase();
@@ -138,6 +154,44 @@ export function useLedger() {
     setFilters(EMPTY_FILTERS);
   }, []);
 
+  const addCategory = useCallback(
+    (type: RecordType, name: string) => {
+      const next = createCategory(type, name, categories);
+      if (!next) return false;
+      setCategories((current) => [...current, next]);
+      return true;
+    },
+    [categories],
+  );
+
+  const renameCategoryAction = useCallback(
+    (id: string, name: string) => {
+      const result = renameCategory(categories, records, budgets, id, name);
+      if (!result) return false;
+      setCategories(result.categories);
+      setRecords(result.records);
+      setBudgets(result.budgets);
+      return true;
+    },
+    [categories, records, budgets],
+  );
+
+  const toggleCategoryAction = useCallback(
+    (id: string) => setCategories(toggleCategory(categories, id)),
+    [categories],
+  );
+
+  const deleteCategoryAction = useCallback(
+    (id: string) => {
+      const result = deleteUnusedCategory(categories, records, budgets, id);
+      if (!result) return false;
+      setCategories(result.categories);
+      setBudgets(result.budgets);
+      return true;
+    },
+    [categories, records, budgets],
+  );
+
   const monthCount = monthRecords.length;
   const isCurrentMonth = useMemo(() => {
     const now = new Date();
@@ -148,6 +202,7 @@ export function useLedger() {
     records,
     budgets,
     theme,
+    categories,
     view,
     year,
     month,
@@ -161,6 +216,7 @@ export function useLedger() {
     ring,
     trend,
     budget,
+    filterCategoryOptions,
     setView,
     goPrevMonth: () => setView((current) => shiftMonth(current, -1)),
     goNextMonth: () => setView((current) => shiftMonth(current, 1)),
@@ -172,6 +228,10 @@ export function useLedger() {
     deleteRecord,
     setBudget,
     clearBudget,
+    addCategory,
+    renameCategoryAction,
+    toggleCategoryAction,
+    deleteCategoryAction,
     setTheme,
     resetDemo,
     wipeAll,

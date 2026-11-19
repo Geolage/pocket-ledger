@@ -19,6 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CircleAlertIcon } from "lucide-react";
+// 表单分类暂时取内置列表，接入账本的分类定义后再改为动态列表。
+import { BUILTIN_CATEGORIES } from "@/src/lib/categories";
 import {
   type LedgerRecord,
   type RecordType,
@@ -58,7 +60,7 @@ function initialState(record: LedgerRecord | null): FormState {
   return {
     type: "expense",
     amount: "",
-    category: categoriesFor("expense")[0],
+    category: categoriesFor("expense", BUILTIN_CATEGORIES)[0],
     date: dateKey(new Date()),
     note: "",
   };
@@ -71,7 +73,7 @@ export function RecordDialog({ open, record, onOpenChange, onSave }: Props) {
   const patch = (next: Partial<FormState>) => setForm((current) => ({ ...current, ...next }));
 
   function changeType(type: RecordType) {
-    const list = categoriesFor(type);
+    const list = categoriesFor(type, BUILTIN_CATEGORIES);
     patch({ type, category: list.includes(form.category) ? form.category : list[0] });
   }
 
@@ -162,7 +164,7 @@ export function RecordDialog({ open, record, onOpenChange, onSave }: Props) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {categoriesFor(form.type).map((category) => (
+                {categoriesFor(form.type, BUILTIN_CATEGORIES).map((category) => (
                   <SelectItem key={category} value={category}>
                     {category}
                   </SelectItem>

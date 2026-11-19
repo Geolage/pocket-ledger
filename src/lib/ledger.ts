@@ -2,6 +2,15 @@
 
 export type RecordType = "expense" | "income";
 
+export interface CategoryDefinition {
+  id: string;
+  type: RecordType;
+  name: string;
+  color: string;
+  disabled: boolean;
+  builtin: boolean;
+}
+
 export interface LedgerRecord {
   id: string;
   type: RecordType;
@@ -46,14 +55,19 @@ export const CATEGORY_COLOR: Record<string, string> = {
 
 export const DEFAULT_COLOR = "var(--cat-3)";
 
+/** 内置分类用到的主题色，自定义分类从中挑选未占用的颜色。 */
+export const BUILTIN_CATEGORY_COLORS = Object.values(CATEGORY_COLOR);
+
 export const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
-export function categoriesFor(type: RecordType): string[] {
-  return type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+export function categoriesFor(type: RecordType, categories: CategoryDefinition[]): string[] {
+  return categories
+    .filter((category) => category.type === type && !category.disabled)
+    .map((category) => category.name);
 }
 
-export function categoryColor(category: string): string {
-  return CATEGORY_COLOR[category] ?? DEFAULT_COLOR;
+export function categoryColor(category: string, categories: CategoryDefinition[]): string {
+  return categories.find((item) => item.name === category)?.color ?? DEFAULT_COLOR;
 }
 
 /* ---------------- 金额：一律按分计算，避免浮点误差 ---------------- */
@@ -224,7 +238,11 @@ export interface BudgetSummary {
   overCount: number;
 }
 
-export function budgetSummary(records: LedgerRecord[], budgets: Budgets): BudgetSummary {
+export function budgetSummary(
+  records: LedgerRecord[],
+  budgets: Budgets,
+  categories: CategoryDefinition[],
+): BudgetSummary {
   const spent = new Map<string, number>();
   for (const record of records) {
     if (record.type !== "expense") continue;
@@ -235,14 +253,14 @@ export function budgetSummary(records: LedgerRecord[], budgets: Budgets): Budget
   let totalBudget = 0;
   let totalSpent = 0;
 
-  for (const category of EXPENSE_CATEGORIES) {
-    const budget = Number(budgets[category]) || 0;
+  for (const category of categories.filter((item) => item.type === "expense" && !item.disabled)) {
+    const budget = Number(budgets[category.name]) || 0;
     if (budget <= 0) continue;
-    const used = fromCents(spent.get(category) ?? 0);
+    const used = fromCents(spent.get(category.name) ?? 0);
     totalBudget += cents(budget);
     totalSpent += cents(used);
     rows.push({
-      category,
+      category: category.name,
       budget,
       spent: used,
       remaining: fromCents(cents(budget) - cents(used)),

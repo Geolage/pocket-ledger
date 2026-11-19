@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as ledger from "../src/lib/ledger.ts";
+import { BUILTIN_CATEGORIES } from "../src/lib/categories.ts";
 import { faviconHref } from "../src/lib/themes.ts";
 
 function record(overrides = {}) {
@@ -25,10 +26,10 @@ test("money and cents use two-decimal rounding without float drift", () => {
 });
 
 test("categories and colors follow income and expense rules", () => {
-  assert.deepEqual(ledger.categoriesFor("expense"), ledger.EXPENSE_CATEGORIES);
-  assert.deepEqual(ledger.categoriesFor("income"), ledger.INCOME_CATEGORIES);
-  assert.equal(ledger.categoryColor("餐饮"), "var(--cat-1)");
-  assert.equal(ledger.categoryColor("不存在"), ledger.DEFAULT_COLOR);
+  assert.deepEqual(ledger.categoriesFor("expense", BUILTIN_CATEGORIES), ledger.EXPENSE_CATEGORIES);
+  assert.deepEqual(ledger.categoriesFor("income", BUILTIN_CATEGORIES), ledger.INCOME_CATEGORIES);
+  assert.equal(ledger.categoryColor("餐饮", BUILTIN_CATEGORIES), "var(--cat-1)");
+  assert.equal(ledger.categoryColor("不存在", BUILTIN_CATEGORIES), ledger.DEFAULT_COLOR);
 });
 
 test("date helpers reject impossible dates and shift across year boundaries", () => {
@@ -131,6 +132,7 @@ test("budgetSummary calculates usage, over/near flags and totals", () => {
       record({ id: "d", category: "工资", amount: 999, type: "income" }),
     ],
     { 餐饮: 100, 交通: 100, 医疗: 200 },
+    BUILTIN_CATEGORIES,
   );
   assert.deepEqual(
     summary.rows.map((row) => row.category),
@@ -149,12 +151,16 @@ test("budgetSummary calculates usage, over/near flags and totals", () => {
 });
 
 test("budgetSummary ignores zero, negative and malformed budgets", () => {
-  const summary = ledger.budgetSummary([record({ id: "a", category: "餐饮", amount: 10 })], {
-    餐饮: 0,
-    交通: -1,
-    购物: Number.NaN,
-    娱乐: 50,
-  });
+  const summary = ledger.budgetSummary(
+    [record({ id: "a", category: "餐饮", amount: 10 })],
+    {
+      餐饮: 0,
+      交通: -1,
+      购物: Number.NaN,
+      娱乐: 50,
+    },
+    BUILTIN_CATEGORIES,
+  );
   assert.deepEqual(
     summary.rows.map((row) => row.category),
     ["娱乐"],

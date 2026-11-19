@@ -16,6 +16,7 @@ import {
   money,
   monthLabel,
   parseDate,
+  type CategoryDefinition,
   type LedgerRecord,
 } from "@/src/lib/ledger";
 import type { Filters, LedgerApi } from "@/src/hooks/use-ledger";
@@ -142,6 +143,7 @@ export function BillsSection({ ledger, onAdd, onEdit, onDelete }: Props) {
                 key={record.id}
                 record={record}
                 showDay={showDay}
+                categories={ledger.categories}
                 onEdit={onEdit}
                 onDelete={onDelete}
               />
@@ -156,11 +158,13 @@ export function BillsSection({ ledger, onAdd, onEdit, onDelete }: Props) {
 function BillRow({
   record,
   showDay,
+  categories,
   onEdit,
   onDelete,
 }: {
   record: LedgerRecord;
   showDay: boolean;
+  categories: CategoryDefinition[];
   onEdit: (record: LedgerRecord) => void;
   onDelete: (record: LedgerRecord) => void;
 }) {
@@ -180,7 +184,7 @@ function BillRow({
         <span
           aria-hidden="true"
           className="grid size-8 place-items-center rounded-lg text-[13px] font-semibold text-white"
-          style={{ background: categoryColor(record.category) }}
+          style={{ background: categoryColor(record.category, categories) }}
         >
           {record.category.charAt(0)}
         </span>

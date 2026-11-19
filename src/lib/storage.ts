@@ -1,7 +1,9 @@
 /* 持久化与演示数据：只写本机 localStorage，不发任何网络请求。 */
 
+import { BUILTIN_CATEGORIES, normalizeCategories } from "./categories";
 import {
   type Budgets,
+  type CategoryDefinition,
   type LedgerRecord,
   cents,
   dateKey,
@@ -19,6 +21,7 @@ export interface LedgerState {
   records: LedgerRecord[];
   budgets: Budgets;
   theme: ThemeId;
+  categories: CategoryDefinition[];
 }
 
 interface StorageResult {
@@ -43,6 +46,17 @@ function readRaw(): string | null {
   }
 }
 
+/** 任何来源的状态（本机存储、导入文件）都先过这一道，保证分类与记录齐全。 */
+export function normalizeLedgerState(input: Partial<LedgerState>): LedgerState {
+  const records = Array.isArray(input.records) ? input.records.filter(isValidRecord) : [];
+  return {
+    records,
+    budgets: sanitizeBudgets(input.budgets),
+    theme: isThemeId(input.theme) ? input.theme : DEFAULT_THEME,
+    categories: normalizeCategories(input.categories, records),
+  };
+}
+
 export function loadState(): StorageResult {
   const raw = readRaw();
 
@@ -54,14 +68,7 @@ export function loadState(): StorageResult {
 
   try {
     const parsed = JSON.parse(raw) as Partial<LedgerState>;
-    return {
-      state: {
-        records: Array.isArray(parsed.records) ? parsed.records.filter(isValidRecord) : [],
-        budgets: sanitizeBudgets(parsed.budgets),
-        theme: isThemeId(parsed.theme) ? parsed.theme : DEFAULT_THEME,
-      },
-      available: true,
-    };
+    return { state: normalizeLedgerState(parsed), available: true };
   } catch {
     const fallback = demoState(DEFAULT_THEME);
     writeState(fallback);
@@ -242,5 +249,6 @@ export function demoState(theme: ThemeId = DEFAULT_THEME): LedgerState {
     ],
     budgets: { 居住: 2800, 餐饮: 4000, 交通: 1500, 购物: 400, 娱乐: 1200, 其他: 600 },
     theme,
+    categories: BUILTIN_CATEGORIES.map((category) => ({ ...category })),
   };
 }
