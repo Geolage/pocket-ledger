@@ -27,6 +27,86 @@ test("normalizeCategories keeps built-ins and adds record-only categories", () =
   assert.ok(result.some((category) => category.name === "宠物" && !category.builtin));
 });
 
+test("normalizeCategories upgrades legacy state stored without categories", () => {
+  const result = normalizeCategories(undefined, [record({ category: "宠物" })]);
+
+  // 旧版本只存名字，升级后每一类内置分类都要带回规范 id 与颜色。
+  for (const builtin of BUILTIN_CATEGORIES) {
+    assert.deepEqual(
+      result.find((category) => category.id === builtin.id),
+      builtin,
+    );
+  }
+
+  const pet = result.find((category) => category.name === "宠物");
+  assert.equal(pet.builtin, false);
+  assert.equal(pet.id, "expense:宠物");
+  assert.equal(result.length, BUILTIN_CATEGORIES.length + 1);
+});
+
+test("normalizeCategories keeps only the disabled flag of stored built-ins", () => {
+  const categories = normalizeCategories(undefined, []);
+  const shopping = categories.find((category) => category.name === "购物");
+  const canonical = BUILTIN_CATEGORIES.find((category) => category.name === "购物");
+
+  const result = normalizeCategories(toggleCategory(categories, shopping.id), []);
+  const again = result.find((category) => category.name === "购物");
+
+  assert.equal(again.disabled, true);
+  assert.deepEqual({ ...again, disabled: false }, canonical);
+
+  // 停用之外的字段被脏数据改过也要还原，否则图表与预算就对不上内置分类了。
+  const corrupted = normalizeCategories(
+    [{ ...canonical, id: "hacked", name: " 餐饮 ", color: "#f00", disabled: true }],
+    [],
+  );
+  const dining = corrupted.find((category) => category.name === "餐饮");
+  assert.equal(dining.disabled, true);
+  assert.deepEqual({ ...dining, disabled: false }, BUILTIN_CATEGORIES[0]);
+});
+
+test("normalizeCategories demotes a custom name that claims to be built-in", () => {
+  const result = normalizeCategories(
+    [
+      {
+        id: "income-9",
+        type: "income",
+        name: "宠物",
+        color: "var(--cat-1)",
+        disabled: false,
+        builtin: true,
+      },
+    ],
+    [],
+  );
+
+  const pet = result.find((category) => category.name === "宠物");
+  assert.equal(pet.builtin, false);
+  assert.equal(pet.type, "income");
+  assert.equal(result.filter((category) => category.id === "income-9").length, 1);
+  // 内置定义一个都不能少。
+  assert.equal(result.length, BUILTIN_CATEGORIES.length + 1);
+});
+
+test("normalizeCategories repairs a renamed built-in id without duplicating it", () => {
+  // 旧 bug：内置分类被改名后，存储里留着 expense-0 这个 id 和陌生的名字。
+  const buggy = BUILTIN_CATEGORIES.map((category) =>
+    category.name === "餐饮" ? { ...category, name: "吃饭" } : { ...category },
+  );
+
+  const result = normalizeCategories(buggy, [record({ category: "吃饭" })]);
+
+  assert.equal(result.filter((category) => category.id === "expense-0").length, 1);
+  assert.equal(result.find((category) => category.id === "expense-0").name, "餐饮");
+
+  const renamed = result.find((category) => category.name === "吃饭");
+  assert.equal(renamed.builtin, false);
+  assert.notEqual(renamed.id, "expense-0");
+  assert.ok(renamed.id.startsWith("expense-0-"), renamed.id);
+
+  assert.equal(new Set(result.map((category) => category.id)).size, result.length);
+});
+
 test("createCategory rejects duplicate names", () => {
   assert.equal(createCategory("expense", "餐饮", BUILTIN_CATEGORIES), null);
   assert.ok(createCategory("expense", "宠物", BUILTIN_CATEGORIES));

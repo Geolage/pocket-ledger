@@ -51,6 +51,52 @@ function categoryKey(type: RecordType, name: string): string {
   return `${type}:${name}`;
 }
 
+/** 内置分类的 type:name → 规范定义，用于把存储里的脏数据拉回内置项。 */
+const BUILTIN_BY_KEY = new Map(
+  BUILTIN_CATEGORIES.map((category) => [categoryKey(category.type, category.name), category]),
+);
+
+/** 内置 id 是图表、预算与历史记录认得的身份，任何自定义项都不能占用。 */
+const BUILTIN_IDS = new Set(BUILTIN_CATEGORIES.map((category) => category.id));
+
+/** 从存储里读出来的一条分类，只保留可信字段；内置身份一律由 BUILTIN_BY_KEY 决定。 */
+interface StoredCategory {
+  id: string;
+  type: RecordType;
+  name: string;
+  color: string;
+  disabled: boolean;
+}
+
+function parseStoredCategory(item: unknown): StoredCategory | null {
+  if (!item || typeof item !== "object") return null;
+  const category = item as Partial<CategoryDefinition>;
+  if (
+    (category.type !== "expense" && category.type !== "income") ||
+    typeof category.name !== "string"
+  )
+    return null;
+
+  const name = category.name.trim();
+  if (!name) return null;
+
+  return {
+    id: typeof category.id === "string" && category.id ? category.id : `${category.type}:${name}`,
+    type: category.type,
+    name,
+    color: typeof category.color === "string" && category.color ? category.color : DEFAULT_COLOR,
+    disabled: category.disabled === true,
+  };
+}
+
+/** 给 id 让路：首选 id 已被占用时按 -2、-3 递增，保证列表里不会出现同 id 的双胞胎。 */
+function uniqueId(preferred: string, used: Set<string>): string {
+  if (!used.has(preferred)) return preferred;
+  let suffix = 2;
+  while (used.has(`${preferred}-${suffix}`)) suffix += 1;
+  return `${preferred}-${suffix}`;
+}
+
 /** 取当前用得最少的色令牌，平手时按 CATEGORY_COLOR_TOKENS 的声明顺序，保证新分类颜色尽量分散。 */
 function nextColor(categories: CategoryDefinition[]): string {
   const counts = CATEGORY_COLOR_TOKENS.map(
@@ -63,7 +109,10 @@ function nextColor(categories: CategoryDefinition[]): string {
   return CATEGORY_COLOR_TOKENS[leastUsed];
 }
 
-/** 把任意来源的分类定义整理成完整列表：内置分类始终存在，记录里的历史分类会补回来。 */
+/**
+ * 把任意来源的分类定义整理成完整列表：内置分类的名字与 id 由代码说了算，
+ * 存储里只有停用状态会被保留；记录里的历史分类会补回来。
+ */
 export function normalizeCategories(input: unknown, records: LedgerRecord[]): CategoryDefinition[] {
   const result = new Map<string, CategoryDefinition>();
 
@@ -71,28 +120,33 @@ export function normalizeCategories(input: unknown, records: LedgerRecord[]): Ca
     result.set(categoryKey(category.type, category.name), { ...category });
   }
 
+  const usedIds = new Set(BUILTIN_IDS);
+
   if (Array.isArray(input)) {
     for (const item of input) {
-      if (!item || typeof item !== "object") continue;
-      const category = item as Partial<CategoryDefinition>;
-      if (
-        (category.type !== "expense" && category.type !== "income") ||
-        typeof category.name !== "string"
-      )
+      const stored = parseStoredCategory(item);
+      if (!stored) continue;
+
+      const key = categoryKey(stored.type, stored.name);
+      const builtin = BUILTIN_BY_KEY.get(key);
+      if (builtin) {
+        // 命中内置名字：无论存储里写着什么 id 或 builtin，都回到规范定义，只继承停用状态。
+        const canonical = result.get(key) ?? builtin;
+        result.set(key, { ...canonical, disabled: canonical.disabled || stored.disabled });
         continue;
+      }
 
-      const name = category.name.trim();
-      if (!name) continue;
-
-      result.set(categoryKey(category.type, name), {
-        id:
-          typeof category.id === "string" && category.id ? category.id : `${category.type}:${name}`,
-        type: category.type,
-        name,
-        color:
-          typeof category.color === "string" && category.color ? category.color : DEFAULT_COLOR,
-        disabled: category.disabled === true,
-        builtin: category.builtin === true,
+      // 未命中内置名字的项都是自定义分类：自称 builtin 的脏数据在这里被降级，
+      // 沿用内置 id 的脏数据（旧版重命名遗留）也会被换成新的唯一 id。
+      const id = uniqueId(stored.id, usedIds);
+      usedIds.add(id);
+      result.set(key, {
+        id,
+        type: stored.type,
+        name: stored.name,
+        color: stored.color,
+        disabled: stored.disabled,
+        builtin: false,
       });
     }
   }
@@ -101,8 +155,10 @@ export function normalizeCategories(input: unknown, records: LedgerRecord[]): Ca
   for (const record of records) {
     const key = categoryKey(record.type, record.category);
     if (!result.has(key)) {
+      const id = uniqueId(`${record.type}:${record.category}`, usedIds);
+      usedIds.add(id);
       const category: CategoryDefinition = {
-        id: `${record.type}:${record.category}`,
+        id,
         type: record.type,
         name: record.category,
         color: nextColor(list),

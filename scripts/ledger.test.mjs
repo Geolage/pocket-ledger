@@ -169,6 +169,34 @@ test("budgetSummary ignores zero, negative and malformed budgets", () => {
   assert.equal(summary.totalSpent, 0);
 });
 
+test("budgetSummary skips disabled categories in rows, totals and over count", () => {
+  const categories = BUILTIN_CATEGORIES.map((category) =>
+    category.name === "交通" || category.name === "工资"
+      ? { ...category, disabled: true }
+      : category,
+  );
+
+  const summary = ledger.budgetSummary(
+    [
+      record({ id: "a", category: "餐饮", amount: 40 }),
+      // 停用分类里的超支记录不能再进预算行。
+      record({ id: "b", category: "交通", amount: 500 }),
+      record({ id: "c", category: "工资", amount: 999, type: "income" }),
+    ],
+    { 餐饮: 100, 交通: 100 },
+    categories,
+  );
+
+  assert.deepEqual(
+    summary.rows.map((row) => row.category),
+    ["餐饮"],
+  );
+  assert.equal(summary.totalBudget, 100);
+  assert.equal(summary.totalSpent, 40);
+  assert.equal(summary.remaining, 60);
+  assert.equal(summary.overCount, 0);
+});
+
 test("isValidRecord rejects incomplete or impossible records", () => {
   assert.equal(ledger.isValidRecord(record()), true);
   assert.equal(ledger.isValidRecord(record({ amount: 0 })), false);

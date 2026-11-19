@@ -55,9 +55,6 @@ export const CATEGORY_COLOR: Record<string, string> = {
 
 export const DEFAULT_COLOR = "var(--cat-3)";
 
-/** 内置分类用到的主题色。 */
-export const BUILTIN_CATEGORY_COLORS = Object.values(CATEGORY_COLOR);
-
 export const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
 export function categoriesFor(type: RecordType, categories: CategoryDefinition[]): string[] {
