@@ -4,6 +4,7 @@ import {
   BUILTIN_CATEGORIES,
   categoryOptions,
   createCategory,
+  deleteCategoryFailure,
   deleteUnusedCategory,
   normalizeCategories,
   renameCategory,
@@ -283,6 +284,85 @@ test("deleteUnusedCategory only removes unused custom categories", () => {
   assert.ok(result);
   assert.ok(!result.categories.some((category) => category.id === custom.id));
   assert.deepEqual(result.budgets, {});
+});
+
+test("deleteUnusedCategory refuses to leave a type without any enabled category", () => {
+  const custom = {
+    id: "c1",
+    type: "expense",
+    name: "宠物",
+    color: "var(--cat-2)",
+    disabled: false,
+    builtin: false,
+  };
+  // 内置支出全停用，只剩这条自定义分类可用：删掉它记一笔就再也选不出支出分类了。
+  const categories = [
+    ...BUILTIN_CATEGORIES.map((category) =>
+      category.type === "expense" ? { ...category, disabled: true } : { ...category },
+    ),
+    custom,
+  ];
+  const records = [record({ category: "餐饮" })];
+  const budgets = { 宠物: 100, 餐饮: 4000 };
+
+  assert.equal(deleteCategoryFailure(categories, records, custom.id), "last-enabled");
+  assert.equal(deleteUnusedCategory(categories, records, budgets, custom.id), null);
+
+  // 拒绝就是什么都没动：预算键、分类列表与启用数量都保持原样。
+  assert.deepEqual(budgets, { 宠物: 100, 餐饮: 4000 });
+  assert.equal(categories.filter((category) => category.id === custom.id).length, 1);
+  assert.equal(
+    categories.filter((category) => category.type === "expense" && !category.disabled).length,
+    1,
+  );
+});
+
+test("deleteUnusedCategory explains why a deletion was rejected", () => {
+  const custom = {
+    id: "c1",
+    type: "expense",
+    name: "宠物",
+    color: "var(--cat-2)",
+    disabled: false,
+    builtin: false,
+  };
+  const categories = [...BUILTIN_CATEGORIES, custom];
+
+  assert.equal(deleteCategoryFailure(categories, [record({ category: "宠物" })], "c1"), "in-use");
+  assert.equal(deleteCategoryFailure(categories, [], "expense-0"), "not-removable");
+  assert.equal(deleteCategoryFailure(categories, [], "missing-id"), "not-removable");
+  assert.equal(deleteCategoryFailure(categories, [], custom.id), null);
+});
+
+test("deleteUnusedCategory still deletes once the type keeps an enabled category", () => {
+  const custom = {
+    id: "c1",
+    type: "expense",
+    name: "宠物",
+    color: "var(--cat-2)",
+    disabled: false,
+    builtin: false,
+  };
+  // 内置支出只停用其余项，留一个启用：这时删掉自定义分类仍然要放行。
+  const categories = [
+    ...BUILTIN_CATEGORIES.map((category) =>
+      category.type === "expense"
+        ? { ...category, disabled: category.name !== "餐饮" }
+        : { ...category },
+    ),
+    custom,
+  ];
+
+  assert.equal(deleteCategoryFailure(categories, [record()], custom.id), null);
+  const result = deleteUnusedCategory(categories, [record()], { 宠物: 100 }, custom.id);
+  assert.ok(result);
+  assert.ok(!result.categories.some((category) => category.id === custom.id));
+  assert.deepEqual(result.budgets, {});
+  assert.equal(
+    result.categories.filter((category) => category.type === "expense" && !category.disabled)
+      .length,
+    1,
+  );
 });
 
 test("categoryOptions includes enabled categories and categories used by records", () => {

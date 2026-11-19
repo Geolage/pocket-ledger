@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  type DeleteCategoryFailure,
   categoryOptions,
   createCategory,
+  deleteCategoryFailure,
   deleteUnusedCategory,
   renameCategory,
   toggleCategory,
@@ -267,18 +269,24 @@ export function useLedger() {
     [writeCategories],
   );
 
+  /** 删除成功返回 null；失败返回原因，界面据此给出对应的可读提示。 */
   const deleteCategoryAction = useCallback(
-    (id: string) => {
+    (id: string): DeleteCategoryFailure | null => {
       const result = deleteUnusedCategory(
         categoriesRef.current,
         recordsRef.current,
         budgetsRef.current,
         id,
       );
-      if (!result) return false;
+      if (!result) {
+        // 没改成任何东西：把原因原样交出去，界面才能区分「还在用」和「删完类型就空了」。
+        return (
+          deleteCategoryFailure(categoriesRef.current, recordsRef.current, id) ?? "not-removable"
+        );
+      }
       writeCategories(() => result.categories);
       writeBudgets(() => result.budgets);
-      return true;
+      return null;
     },
     [writeCategories, writeBudgets],
   );
@@ -299,7 +307,7 @@ export function useLedger() {
     month,
     isCurrentMonth,
     storageAvailable,
-    // 迁移没能完成、页面正在用退回的安全视图：设置里要如实说明，Task 4 的备份上线前别再乱改。
+    // 迁移没能完成、页面正在用退回的安全视图：设置里如实说明现状，落盘时机由上面的 rawPreservedRef 把关。
     degraded: initial.degraded,
     filters,
     monthRecords,

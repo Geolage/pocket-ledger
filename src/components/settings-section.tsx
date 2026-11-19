@@ -105,7 +105,7 @@ export function SettingsSection({ ledger, onResetDemo, onWipe }: Props) {
                 className="flex items-start gap-1.5 rounded-lg border border-warning/30 bg-warning/8 px-3 py-2 text-[13px] text-warning"
               >
                 <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                本机数据的分类迁移没有走完，页面暂时用可恢复的安全视图展示，在导出备份之前请尽量避免不必要的改动，以免覆盖原始数据。
+                当前账本处于安全恢复视图，系统不会自动覆盖原始数据；请谨慎修改。
               </p>
             )}
             <div className="flex flex-wrap gap-2">

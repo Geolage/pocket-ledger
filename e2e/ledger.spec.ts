@@ -434,6 +434,198 @@ test("自定义分类的校验：重名与空名报错，内置项无改名删�
   await expect(manager.getByText("已有账单使用，无法删除")).toBeVisible();
 });
 
+test("删掉最后一个启用的支出分类会被拒绝，类型里至少留一个", async ({ page }) => {
+  interface StoredCategory {
+    type: "expense" | "income";
+    disabled: boolean;
+  }
+  const enabledExpenseCount = () =>
+    page.evaluate(() => {
+      const state = JSON.parse(localStorage.getItem("pocket-ledger.v1") ?? "{}") as {
+        categories: StoredCategory[];
+      };
+      return state.categories.filter(
+        (category) => category.type === "expense" && !category.disabled,
+      ).length;
+    });
+
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  const manager = page.getByRole("region", { name: "分类管理" });
+
+  // 1. 加一条没人用的自定义支出分类。
+  await manager.getByLabel("新分类名称").fill("宠物");
+  await manager.getByRole("button", { name: "添加分类" }).click();
+  await expect(manager.getByText("宠物", { exact: true })).toBeVisible();
+
+  // 2. 自定义项还启用着，所以内置支出分类可以一条条停用到底。
+  for (const name of ["餐饮", "交通", "购物", "居住", "娱乐", "医疗", "教育", "其他"]) {
+    await manager.getByRole("button", { name: new RegExp(`^停用 ${name}$`) }).click();
+    await expect(manager.getByRole("button", { name: new RegExp(`^启用 ${name}$`) })).toBeVisible();
+  }
+  await expect.poll(enabledExpenseCount).toBe(1);
+
+  // 3+4. 删除唯一还启用的那条：必须被拒，并且一个启用分类都不许少。
+  await manager.getByRole("button", { name: /^删除 宠物$/ }).click();
+  await expect(manager.getByRole("alert")).toContainText(
+    "删除失败：每个类型至少需要保留一个启用分类",
+  );
+  await expect(manager.getByText("宠物", { exact: true })).toBeVisible();
+  await expect(manager.getByRole("button", { name: /^停用 宠物$/ })).toBeVisible();
+  await expect.poll(enabledExpenseCount).toBe(1);
+  await expect(manager.getByText(/其中 1 个可用/)).toBeVisible();
+});
+
+test("记一笔在分类缺失时拒绝保存，不会写出没有分类的账单", async ({ page }) => {
+  const recordCount = () =>
+    page.evaluate(() => {
+      const state = JSON.parse(localStorage.getItem("pocket-ledger.v1") ?? "{}") as {
+        records: unknown[];
+      };
+      return state.records.length;
+    });
+
+  await page.evaluate(() => {
+    interface StoredCategory {
+      type: "expense" | "income";
+    }
+    const state = JSON.parse(localStorage.getItem("pocket-ledger.v1") ?? "{}") as {
+      categories: StoredCategory[];
+    };
+    // 直接把整个支出类型停光：界面上删不出这种状态，但脏存储能带进来，表单得自己拦住。
+    state.categories = state.categories.map((category) =>
+      category.type === "expense" ? { ...category, disabled: true } : category,
+    );
+    localStorage.setItem("pocket-ledger.v1", JSON.stringify(state));
+  });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
+
+  const before = await recordCount();
+  await page.getByRole("button", { name: "记一笔" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "记一笔" });
+  await dialog.getByLabel(/金额/).fill("20.00");
+  await dialog.getByLabel(/备注/).fill("没有分类的一笔");
+  await dialog.getByRole("button", { name: "保存" }).click();
+
+  await expect(dialog.getByRole("alert")).toContainText("请选择分类");
+  await expect(dialog.locator("#record-category")).toHaveAttribute("aria-invalid", "true");
+  await expect(dialog).toBeVisible();
+  await expect(page.getByText("已记一笔支出")).toHaveCount(0);
+  await expect.poll(recordCount).toBe(before);
+
+  // 切到收入就有候选项，说明报错只卡在缺分类这一步。
+  await dialog.getByText("收入", { exact: true }).click();
+  await expect(dialog.locator("#record-category")).not.toHaveAttribute("aria-invalid", "true");
+  await dialog.getByRole("button", { name: "取消" }).click();
+  await expect(dialog).toBeHidden();
+});
+
+test("改名没有变化时提示「分类名称未变化」，不再误报同名", async ({ page }) => {
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  const manager = page.getByRole("region", { name: "分类管理" });
+
+  await manager.getByLabel("新分类名称").fill("宠物");
+  await manager.getByRole("button", { name: "添加分类" }).click();
+
+  await manager.getByRole("button", { name: /^重命名 宠物$/ }).click();
+  await manager.getByLabel("编辑 宠物").fill(" 宠物 ");
+  await manager.getByRole("button", { name: "保存重命名" }).click();
+
+  await expect(manager.getByRole("alert")).toContainText("分类名称未变化");
+  await expect(manager.getByText(/已有同名分类/)).toHaveCount(0);
+  // 编辑器留在原地：报错之后还能继续改，不用重新点开。
+  await expect(manager.getByLabel("编辑 宠物")).toBeVisible();
+
+  await manager.getByLabel("编辑 宠物").fill("猫粮");
+  await expect(manager.getByRole("alert")).toHaveCount(0);
+  await manager.getByRole("button", { name: "保存重命名" }).click();
+  await expect(manager.getByText("猫粮", { exact: true })).toBeVisible();
+});
+
+test("分类名限长 12 个字，两个表单的报错互不污染", async ({ page }) => {
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  const manager = page.getByRole("region", { name: "分类管理" });
+  const newName = manager.getByLabel("新分类名称");
+  const addAlert = manager.locator("#category-add-error");
+  const renameAlert = manager.locator("#category-rename-error");
+
+  await manager.getByLabel("新分类名称").fill("宠物");
+  await manager.getByRole("button", { name: "添加分类" }).click();
+
+  // 13 个字：新增报错，且这个框自己标成无效。
+  await newName.fill("一二三四五六七八九十一二三");
+  await manager.getByRole("button", { name: "添加分类" }).click();
+  await expect(addAlert).toContainText("分类名称请不超过 12 个字");
+  await expect(newName).toHaveAttribute("aria-invalid", "true");
+  await expect(manager.getByText("一二三四五六七八九十一二三", { exact: true })).toHaveCount(0);
+
+  // 新增的报错不该让改名输入框看起来无效。
+  await manager.getByRole("button", { name: /^重命名 宠物$/ }).click();
+  await expect(manager.getByLabel("编辑 宠物")).not.toHaveAttribute("aria-invalid", "true");
+  await expect(newName).toHaveAttribute("aria-invalid", "true");
+
+  await manager.getByLabel("编辑 宠物").fill("一二三四五六七八九十一二三四五");
+  await manager.getByRole("button", { name: "保存重命名" }).click();
+  await expect(renameAlert).toContainText("分类名称请不超过 12 个字");
+  await expect(manager.getByLabel("编辑 宠物")).toHaveAttribute("aria-invalid", "true");
+
+  // 反过来也一样：改名的报错不影响新增框，且取消改名会把它一起收掉。
+  await newName.fill("猫粮");
+  await expect(addAlert).toHaveCount(0);
+  await expect(renameAlert).toBeVisible();
+  await manager.getByRole("button", { name: "取消" }).click();
+  await expect(manager.getByRole("alert")).toHaveCount(0);
+  await expect(manager.getByText("宠物", { exact: true })).toBeVisible();
+});
+
+test("停用或删除别的分类不会弄丢正在编辑的改名草稿", async ({ page }) => {
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  const manager = page.getByRole("region", { name: "分类管理" });
+
+  for (const name of ["宠物", "健身"]) {
+    await manager.getByLabel("新分类名称").fill(name);
+    await manager.getByRole("button", { name: "添加分类" }).click();
+  }
+
+  await manager.getByRole("button", { name: /^重命名 宠物$/ }).click();
+  const editor = manager.getByLabel("编辑 宠物");
+  await editor.fill("猫粮");
+
+  // 旁边的停用与删除照点不误，草稿得留在原处，不能悄悄丢掉用户正在写的名字。
+  await manager.getByRole("button", { name: /^停用 餐饮$/ }).click();
+  await expect(manager.getByRole("button", { name: /^启用 餐饮$/ })).toBeVisible();
+  await manager.getByRole("button", { name: /^删除 健身$/ }).click();
+  await expect(manager.getByText("健身", { exact: true })).toHaveCount(0);
+
+  await expect(editor).toBeVisible();
+  await expect(editor).toHaveValue("猫粮");
+  await manager.getByRole("button", { name: "保存重命名" }).click();
+  await expect(manager.getByText("猫粮", { exact: true })).toBeVisible();
+});
+
+test("降级视图如实说明安全恢复，不承诺没上线的导出备份", async ({ page }) => {
+  await page.addInitScript(() => {
+    // 解析得了、迁移走不完的状态：这才是真正会触发 degraded 的输入。
+    localStorage.setItem("pocket-ledger.v1", "null");
+  });
+
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+
+  const warning = page.getByRole("status").filter({ hasText: "安全恢复视图" });
+  await expect(warning).toHaveText(
+    "当前账本处于安全恢复视图，系统不会自动覆盖原始数据；请谨慎修改。",
+  );
+  await expect(warning).not.toContainText("导出");
+  await expect(warning).not.toContainText("备份");
+});
+
+test("正常加载时不显示降级提示", async ({ page }) => {
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  await expect(page.getByText(/安全恢复视图/)).toHaveCount(0);
+});
+
 test("分类改动驱动记一笔与预算的候选项，停用分类不影响已有记录", async ({ page }) => {
   await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
   const manager = page.getByRole("region", { name: "分类管理" });

@@ -62,7 +62,9 @@ function initialState(record: LedgerRecord | null, categories: CategoryDefinitio
   return {
     type: "expense",
     amount: "",
-    category: categoriesFor("expense", categories)[0],
+    // 一个启用分类都没有时留空字符串而不是 undefined：下面提交要按「有没有分类」报错，
+    // 而 undefined 会一路摸进 addRecord，把必填的分类写成脏数据。
+    category: categoriesFor("expense", categories)[0] ?? "",
     date: dateKey(new Date()),
     note: "",
   };
@@ -70,7 +72,7 @@ function initialState(record: LedgerRecord | null, categories: CategoryDefinitio
 
 export function RecordDialog({ open, record, categories, onOpenChange, onSave }: Props) {
   const [form, setForm] = useState<FormState>(() => initialState(record, categories));
-  const [errors, setErrors] = useState<{ amount?: string; date?: string }>({});
+  const [errors, setErrors] = useState<{ amount?: string; category?: string; date?: string }>({});
 
   const patch = (next: Partial<FormState>) => setForm((current) => ({ ...current, ...next }));
 
@@ -79,19 +81,34 @@ export function RecordDialog({ open, record, categories, onOpenChange, onSave }:
   const options =
     form.category && !enabled.includes(form.category) ? [form.category, ...enabled] : enabled;
 
+  function clearCategoryError() {
+    // 动过分类就把这条错误撤掉：留着会让控件在已经修好之后仍然报无效。
+    setErrors((current) => (current.category ? { ...current, category: undefined } : current));
+  }
+
   function changeType(type: RecordType) {
     const list = categoriesFor(type, categories);
-    patch({ type, category: list.includes(form.category) ? form.category : list[0] });
+    patch({ type, category: list.includes(form.category) ? form.category : (list[0] ?? "") });
+    clearCategoryError();
+  }
+
+  function changeCategory(category: string) {
+    patch({ category });
+    clearCategoryError();
   }
 
   function submit() {
     const raw = form.amount.replace(/[，,\s¥]/g, "");
     const value = Number(raw);
-    const next: { amount?: string; date?: string } = {};
+    const next: { amount?: string; category?: string; date?: string } = {};
 
     if (raw === "" || Number.isNaN(value) || value <= 0) next.amount = "请输入大于 0 的金额";
     else if (value > 999999) next.amount = "单笔金额请不超过 ¥999,999";
     else if (fromCents(cents(value)) !== value) next.amount = "金额最多保留两位小数";
+
+    // 分类是记录的一部分，不是可有可无的装饰：空值直接拦下，绝不带着 undefined 去存。
+    const category = form.category.trim();
+    if (!category) next.category = "请选择分类";
 
     const date = parseDate(form.date);
     if (!date) next.date = "请选择日期";
@@ -104,7 +121,7 @@ export function RecordDialog({ open, record, categories, onOpenChange, onSave }:
     onSave({
       type: form.type,
       amount: fromCents(cents(value)),
-      category: form.category,
+      category,
       date: form.date,
       note: form.note.trim().slice(0, 40),
     });
@@ -166,9 +183,14 @@ export function RecordDialog({ open, record, categories, onOpenChange, onSave }:
 
           <div className="grid gap-1.5">
             <Label htmlFor="record-category">分类</Label>
-            <Select value={form.category} onValueChange={(value) => patch({ category: value })}>
-              <SelectTrigger id="record-category" className="w-full">
-                <SelectValue />
+            <Select value={form.category} onValueChange={changeCategory}>
+              <SelectTrigger
+                id="record-category"
+                className="w-full"
+                aria-invalid={errors.category ? true : undefined}
+                aria-describedby={errors.category ? "record-category-error" : undefined}
+              >
+                <SelectValue placeholder="请选择分类" />
               </SelectTrigger>
               <SelectContent>
                 {options.map((category) => (
@@ -178,6 +200,7 @@ export function RecordDialog({ open, record, categories, onOpenChange, onSave }:
                 ))}
               </SelectContent>
             </Select>
+            <FieldError id="record-category-error" message={errors.category} />
           </div>
 
           <div className="grid gap-1.5">

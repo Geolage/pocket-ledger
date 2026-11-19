@@ -22,14 +22,15 @@ export interface CategoryMutation {
 /** 主题里可用的六种类别色令牌，直接从 CATEGORY_COLOR 的取值去重得到，避免再抄一份清单。 */
 const CATEGORY_COLOR_TOKENS = [...new Set(Object.values(CATEGORY_COLOR))];
 
-function freezeBuiltins(list: CategoryDefinition[]): CategoryDefinition[] {
+function freezeBuiltins(list: CategoryDefinition[]): readonly CategoryDefinition[] {
   for (const category of list) Object.freeze(category);
   // 冻结后原地改内置项只会静默失败：内置身份是记录与预算的键，不能被任何消费方改写。
   Object.freeze(list);
   return list;
 }
 
-export const BUILTIN_CATEGORIES: CategoryDefinition[] = freezeBuiltins([
+/** 只读是类型层面的保证，冻结是运行时的保证：读侧的函数一律收 readonly 形参，不用做不安全转换。 */
+export const BUILTIN_CATEGORIES: readonly CategoryDefinition[] = freezeBuiltins([
   ...EXPENSE_CATEGORIES.map((name, index): CategoryDefinition => ({
     id: `expense-${index}`,
     type: "expense",
@@ -99,7 +100,7 @@ function uniqueId(preferred: string, used: Set<string>): string {
 }
 
 /** 取当前用得最少的色令牌，平手时按 CATEGORY_COLOR_TOKENS 的声明顺序，保证新分类颜色尽量分散。 */
-function nextColor(categories: CategoryDefinition[]): string {
+function nextColor(categories: readonly CategoryDefinition[]): string {
   const counts = CATEGORY_COLOR_TOKENS.map(
     (token) => categories.filter((category) => category.color === token).length,
   );
@@ -114,7 +115,10 @@ function nextColor(categories: CategoryDefinition[]): string {
  * 把任意来源的分类定义整理成完整列表：内置分类的名字与 id 由代码说了算，
  * 存储里只有停用状态会被保留；记录里的历史分类会补回来。
  */
-export function normalizeCategories(input: unknown, records: LedgerRecord[]): CategoryDefinition[] {
+export function normalizeCategories(
+  input: unknown,
+  records: readonly LedgerRecord[],
+): CategoryDefinition[] {
   const result = new Map<string, CategoryDefinition>();
 
   for (const category of BUILTIN_CATEGORIES) {
@@ -181,14 +185,18 @@ export function normalizeCategories(input: unknown, records: LedgerRecord[]): Ca
  * 名字是否已被占用。预算与颜色查找都以名字为键，所以唯一性跨支出与收入两种类型，
  * 否则 "工资" 建两条会让其中一条的预算悄悄失效。
  */
-function nameTaken(categories: CategoryDefinition[], name: string, exceptId?: string): boolean {
+function nameTaken(
+  categories: readonly CategoryDefinition[],
+  name: string,
+  exceptId?: string,
+): boolean {
   return categories.some((category) => category.name === name && category.id !== exceptId);
 }
 
 export function createCategory(
   type: RecordType,
   name: string,
-  categories: CategoryDefinition[],
+  categories: readonly CategoryDefinition[],
 ): CategoryDefinition | null {
   const trimmed = name.trim();
   if (!trimmed || nameTaken(categories, trimmed)) return null;
@@ -207,8 +215,8 @@ export function createCategory(
 }
 
 export function renameCategory(
-  categories: CategoryDefinition[],
-  records: LedgerRecord[],
+  categories: readonly CategoryDefinition[],
+  records: readonly LedgerRecord[],
   budgets: Budgets,
   id: string,
   nextName: string,
@@ -244,6 +252,10 @@ export function renameCategory(
   return { categories: nextCategories, records: nextRecords, budgets: nextBudgets };
 }
 
+/**
+ * 停用是唯一会原样返回入参的操作（被拒时调用方靠引用相同判断失败），
+ * 所以这里保留可写形参，不接 readonly 的内置清单。
+ */
 export function toggleCategory(categories: CategoryDefinition[], id: string): CategoryDefinition[] {
   const target = categories.find((category) => category.id === id);
   if (!target) return categories;
@@ -257,19 +269,43 @@ export function toggleCategory(categories: CategoryDefinition[], id: string): Ca
   return enabledCount === 0 ? categories : nextCategories;
 }
 
-export function deleteUnusedCategory(
-  categories: CategoryDefinition[],
-  records: LedgerRecord[],
-  budgets: Budgets,
+/**
+ * 删除被拦下来的三种原因，界面要分开解释，混成一句就不诚实了：
+ * - in-use：还有账单在用这个名字，删掉记录与预算就成孤儿；
+ * - last-enabled：删完这个类型一个启用分类都不剩，记一笔与预算会没有候选项；
+ * - not-removable：目标不存在，或者是内置分类（内置项只能停用，不能删）。
+ */
+export type DeleteCategoryFailure = "in-use" | "last-enabled" | "not-removable";
+
+export function deleteCategoryFailure(
+  categories: readonly CategoryDefinition[],
+  records: readonly LedgerRecord[],
   id: string,
-): CategoryMutation | null {
+): DeleteCategoryFailure | null {
   const target = categories.find((category) => category.id === id);
-  if (!target || target.builtin) return null;
+  if (!target || target.builtin) return "not-removable";
   // 比对去空格后的名字：脏记录仍在使用这个分类时不能删，否则预算与记录就成孤儿。
   if (
     records.some((record) => record.type === target.type && record.category.trim() === target.name)
   )
-    return null;
+    return "in-use";
+
+  // 每个类型都要留下至少一个启用分类：候选项、预算行与图表都靠它兜底，删完就什么都选不出来了。
+  const remainingEnabled = categories.filter(
+    (category) => category.type === target.type && !category.disabled && category.id !== target.id,
+  ).length;
+  return remainingEnabled === 0 ? "last-enabled" : null;
+}
+
+export function deleteUnusedCategory(
+  categories: readonly CategoryDefinition[],
+  records: readonly LedgerRecord[],
+  budgets: Budgets,
+  id: string,
+): CategoryMutation | null {
+  if (deleteCategoryFailure(categories, records, id) !== null) return null;
+  const target = categories.find((category) => category.id === id);
+  if (!target) return null; // 上一道闸门已经保证了目标存在，这里只是给返回值一个交代。
 
   const nextBudgets = { ...budgets };
   for (const key of Object.keys(nextBudgets)) {
@@ -278,14 +314,14 @@ export function deleteUnusedCategory(
 
   return {
     categories: categories.filter((category) => category.id !== id),
-    records,
+    records: [...records],
     budgets: nextBudgets,
   };
 }
 
 export function categoryOptions(
-  categories: CategoryDefinition[],
-  records: LedgerRecord[],
+  categories: readonly CategoryDefinition[],
+  records: readonly LedgerRecord[],
 ): string[] {
   const names = new Set([
     ...enabledNames(categories, "expense"),

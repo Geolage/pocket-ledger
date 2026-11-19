@@ -71,13 +71,19 @@ export const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周�
  * 某个类型下「可以选用」的分类名。预算行、选择器与分类候选共用这一份口径，
  * 免得各处的过滤条件各写各的。
  */
-export function enabledNames(categories: CategoryDefinition[], type: RecordType): string[] {
+export function enabledNames(
+  categories: readonly CategoryDefinition[],
+  type: RecordType,
+): string[] {
   return categories
     .filter((category) => category.type === type && !category.disabled)
     .map((category) => category.name);
 }
 
-export function categoriesFor(type: RecordType, categories: CategoryDefinition[]): string[] {
+export function categoriesFor(
+  type: RecordType,
+  categories: readonly CategoryDefinition[],
+): string[] {
   return enabledNames(categories, type);
 }
 
@@ -85,7 +91,7 @@ export function categoriesFor(type: RecordType, categories: CategoryDefinition[]
 export function categoryColor(
   category: string,
   type: RecordType,
-  categories: CategoryDefinition[],
+  categories: readonly CategoryDefinition[],
 ): string {
   return (
     categories.find((item) => item.type === type && item.name === category)?.color ?? DEFAULT_COLOR
@@ -263,7 +269,7 @@ export interface BudgetSummary {
 export function budgetSummary(
   records: LedgerRecord[],
   budgets: Budgets,
-  categories: CategoryDefinition[],
+  categories: readonly CategoryDefinition[],
 ): BudgetSummary {
   const spent = new Map<string, number>();
   for (const record of records) {
