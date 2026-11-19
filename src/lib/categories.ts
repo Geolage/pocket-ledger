@@ -2,7 +2,6 @@
 
 // 显式写 .ts：scripts 下的单元测试用 node --test 直接加载本模块，Node 的 ESM 解析不会补扩展名。
 import {
-  BUILTIN_CATEGORY_COLORS,
   CATEGORY_COLOR,
   DEFAULT_COLOR,
   EXPENSE_CATEGORIES,
@@ -18,6 +17,16 @@ export interface CategoryMutation {
   records: LedgerRecord[];
   budgets: Budgets;
 }
+
+/** 主题里可用的六种类别色令牌，自定义分类按用量轮转取色。 */
+const CATEGORY_COLOR_TOKENS = [
+  "var(--cat-1)",
+  "var(--cat-2)",
+  "var(--cat-3)",
+  "var(--cat-4)",
+  "var(--cat-5)",
+  "var(--cat-6)",
+];
 
 export const BUILTIN_CATEGORIES: CategoryDefinition[] = [
   ...EXPENSE_CATEGORIES.map((name, index): CategoryDefinition => ({
@@ -42,9 +51,16 @@ function categoryKey(type: RecordType, name: string): string {
   return `${type}:${name}`;
 }
 
+/** 取当前用得最少的色令牌，平手时按 CATEGORY_COLOR_TOKENS 的声明顺序，保证新分类颜色尽量分散。 */
 function nextColor(categories: CategoryDefinition[]): string {
-  const used = new Set(categories.map((category) => category.color));
-  return BUILTIN_CATEGORY_COLORS.find((color) => !used.has(color)) ?? DEFAULT_COLOR;
+  const counts = CATEGORY_COLOR_TOKENS.map(
+    (token) => categories.filter((category) => category.color === token).length,
+  );
+  let leastUsed = 0;
+  for (let index = 1; index < counts.length; index += 1) {
+    if (counts[index] < counts[leastUsed]) leastUsed = index;
+  }
+  return CATEGORY_COLOR_TOKENS[leastUsed];
 }
 
 /** 把任意来源的分类定义整理成完整列表：内置分类始终存在，记录里的历史分类会补回来。 */
@@ -136,6 +152,8 @@ export function renameCategory(
   const trimmed = nextName.trim();
   const target = categories.find((category) => category.id === id);
   if (!target || !trimmed) return null;
+  // 内置分类的名字是图表、预算与历史记录的键，只能停用不能改名。
+  if (target.builtin) return null;
   if (
     categories.some(
       (category) =>

@@ -32,6 +32,17 @@ test("createCategory rejects duplicate names", () => {
   assert.ok(createCategory("expense", "宠物", BUILTIN_CATEGORIES));
 });
 
+test("createCategory gives new custom categories distinct colors", () => {
+  const categories = normalizeCategories(undefined, []);
+  const first = createCategory("expense", "宠物", categories);
+  const second = createCategory("expense", "健身", [...categories, first]);
+
+  // 内置分类已占满六种色，自定义分类仍要拿到尚未用满的令牌，而不是共用一个。
+  assert.match(first.color, /^var\(--cat-[1-6]\)$/);
+  assert.match(second.color, /^var\(--cat-[1-6]\)$/);
+  assert.notEqual(first.color, second.color);
+});
+
 test("renameCategory updates the definition, records, and budgets", () => {
   const categories = normalizeCategories(undefined, [record({ category: "宠物" })]);
   const target = categories.find((category) => category.name === "宠物");
@@ -47,6 +58,25 @@ test("renameCategory updates the definition, records, and budgets", () => {
   assert.equal(result.categories.find((category) => category.id === target.id).name, "猫粮");
   assert.equal(result.records[0].category, "猫粮");
   assert.deepEqual(result.budgets, { 猫粮: 300 });
+});
+
+test("renameCategory keeps built-in names and leaves records and budgets alone", () => {
+  const categories = normalizeCategories(undefined, []);
+  const builtin = categories.find((category) => category.name === "餐饮");
+  const records = [record({ category: "餐饮" })];
+  const budgets = { 餐饮: 4000 };
+
+  const result = renameCategory(categories, records, budgets, builtin.id, "吃饭");
+
+  assert.equal(result, null);
+  // 返回 null 表示没有任何改动：调用方保留原记录与预算，重载后内置分类名依旧。
+  assert.deepEqual(records, [record({ category: "餐饮" })]);
+  assert.deepEqual(budgets, { 餐饮: 4000 });
+  assert.ok(
+    normalizeCategories(categories, records).some(
+      (category) => category.id === builtin.id && category.name === "餐饮",
+    ),
+  );
 });
 
 test("toggleCategory disables a category but keeps at least one enabled", () => {

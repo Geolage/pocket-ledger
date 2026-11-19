@@ -55,7 +55,7 @@ export const CATEGORY_COLOR: Record<string, string> = {
 
 export const DEFAULT_COLOR = "var(--cat-3)";
 
-/** 内置分类用到的主题色，自定义分类从中挑选未占用的颜色。 */
+/** 内置分类用到的主题色。 */
 export const BUILTIN_CATEGORY_COLORS = Object.values(CATEGORY_COLOR);
 
 export const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
