@@ -10,6 +10,39 @@ async function addExpense(page: Page, amount: string, note: string) {
   await expect(dialog).toBeHidden();
 }
 
+/**
+ * 开始数真正写进 `pocket-ledger.v1` 的次数。
+ * 一次什么都没改到的点击不该有资格落盘：降级状态下多落这一笔，盖掉的正是盘里唯一那份原始数据，
+ * 而这件事在界面上根本看不出来，所以只能从写入这一侧取证。
+ */
+async function armStorageWriteCounter(page: Page) {
+  await page.evaluate(() => {
+    const counter = { writes: 0 };
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (this: Storage, key: string, value: string) {
+      if (key === "pocket-ledger.v1") counter.writes += 1;
+      setItem.call(this, key, value);
+    };
+    (window as unknown as { ledgerStorageWrites: typeof counter }).ledgerStorageWrites = counter;
+  });
+}
+
+const readStorageWrites = (page: Page) =>
+  page.evaluate(
+    () =>
+      (window as unknown as { ledgerStorageWrites: { writes: number } }).ledgerStorageWrites.writes,
+  );
+
+/** 设置页走一遍「清空所有数据」的确认流程。 */
+async function wipeFromSettings(page: Page) {
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: "清空所有数据" }).click();
+  await page
+    .getByRole("dialog", { name: "清空所有数据？" })
+    .getByRole("button", { name: "清空" })
+    .click();
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
@@ -1093,6 +1126,55 @@ test("删除记录后翻看别的月份：撤销窗口跟着这次改动一起�
   await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
 });
 
+test("删除记录后改关键词筛选：撤销窗口跟着这次改动一起结束", async ({ page }) => {
+  await addExpense(page, "31.00", "改关键词前删掉的那笔");
+  await deleteWithConfirm(page, "改关键词前删掉的那笔");
+
+  await page.locator("#filter-keyword").fill("房租");
+  await expect(page.getByRole("listitem").filter({ hasText: "房租" }).first()).toBeVisible();
+
+  // 筛选不落盘，但它同样定义了「按下撤销要还回来的是哪一屏」：换了一个看法，这一步就过期了。
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+});
+
+test("删除记录后改类型筛选：撤销窗口跟着这次改动一起结束", async ({ page }) => {
+  await addExpense(page, "24.00", "留着的那笔支出");
+  await addExpense(page, "31.00", "改类型前删掉的那笔");
+  await deleteWithConfirm(page, "改类型前删掉的那笔");
+
+  await page.locator("#filter-type").click();
+  await page.getByRole("option", { name: "收入" }).click();
+  const trigger = page.locator("#filter-type");
+  await expect(trigger).toContainText("收入");
+  await expect(page.getByText("留着的那笔支出")).toHaveCount(0);
+
+  // 改筛选不会弹出新的提示，也就没有一条消息去顶掉旧的那条：撤销窗口得由改动自己收掉。
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+});
+
+test("编辑这笔之后：撤销窗口跟着这次改动一起结束", async ({ page }) => {
+  await addExpense(page, "24.00", "留着待编辑的那笔");
+  await addExpense(page, "31.00", "编辑前删掉的那笔");
+  await deleteWithConfirm(page, "编辑前删掉的那笔");
+
+  await page
+    .getByRole("listitem")
+    .filter({ hasText: "留着待编辑的那笔" })
+    .getByRole("button", { name: /^编辑/ })
+    .click();
+  const editor = page.getByRole("dialog", { name: "编辑这笔" });
+  await editor.getByLabel(/金额/).fill("42.00");
+  await editor.getByRole("button", { name: "保存" }).click();
+  await expect(editor).toBeHidden();
+
+  await expect(page.getByText("已更新这笔记录")).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: "留着待编辑的那笔" })).toContainText(
+    "−¥42.00",
+  );
+  // 改的是账本本身，账本已经走远：那颗按钮撤不回删除，留着只会误导。
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+});
+
 test("取消预算后保存新预算：撤销窗口跟着这次改动一起结束", async ({ page }) => {
   const budget = page.locator("#budget");
   await budget.getByLabel("每月预算（元）").fill("1");
@@ -1157,23 +1239,78 @@ test("撤销成功后提示收起，不留一颗点不动的按钮", async ({ pa
 });
 
 test("已经空了再清空一次不给撤销按钮", async ({ page }) => {
-  const wipe = async () => {
-    await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
-    await page.getByRole("button", { name: "清空所有数据" }).click();
-    await page
-      .getByRole("dialog", { name: "清空所有数据？" })
-      .getByRole("button", { name: "清空" })
-      .click();
-  };
-
-  await wipe();
+  await wipeFromSettings(page);
   await expect(page.getByText(/还没有记录/).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();
 
-  await wipe();
+  await wipeFromSettings(page);
   // 账本本来就是空的：这一次什么都没删掉，自然也没有可撤的一步。
   await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
   await expect(page.getByText(/还没有记录/).first()).toBeVisible();
+});
+
+test("停在过去的月份里重复清空同样是空操作：不落盘，也不给撤销", async ({ page }) => {
+  const range = page.getByText(/^统计范围：/);
+  await armStorageWriteCounter(page);
+
+  // 先确认计数器看得见真改动：清空掉记录与预算的这一步当然要落盘。
+  await wipeFromSettings(page);
+  await expect(page.getByText(/还没有记录/).first()).toBeVisible();
+  await expect.poll(() => readStorageWrites(page)).toBeGreaterThan(0);
+  const writesAfterFirstWipe = await readStorageWrites(page);
+
+  // 月份不落盘，所以翻到上个月本身是一次免费的点击。
+  const currentMonth = (await range.textContent()) ?? "";
+  await page.getByRole("button", { name: "上一个月" }).click();
+  await expect(range).not.toHaveText(currentMonth);
+  expect(await readStorageWrites(page)).toBe(writesAfterFirstWipe);
+
+  await wipeFromSettings(page);
+  // 清空动不到月份视图：上个月里记录与预算一样是空的，这一笔点击照样什么都没改。
+  await expect(page.getByText("已清空本机数据")).toBeVisible();
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+
+  // 断言「没有多出一次落盘」要等 React 把那一次提交走完，否则读得早点晚点都一样。
+  await page.waitForTimeout(250);
+  const writesAfterNoop = await readStorageWrites(page);
+  expect(writesAfterNoop).toBe(writesAfterFirstWipe);
+
+  // 什么都没改动，就不该多出这两件事：一笔多余的落盘，或者把界面切进安全恢复视图。
+  await expect(page.getByText(/安全恢复视图/)).toHaveCount(0);
+  await expect(page.getByText(/浏览器拒绝写入本地存储/)).toHaveCount(0);
+
+  // 反向对照：紧接着的一次真改动确实会被这个计数器看见，说明上面那句「一次都没多」不是空断言。
+  await page.getByRole("button", { name: "恢复演示数据" }).click();
+  await page
+    .getByRole("dialog", { name: "恢复演示数据？" })
+    .getByRole("button", { name: "恢复演示" })
+    .click();
+  await expect(page.getByText(/显示 \d+ \/ \d+ 笔/)).toBeVisible();
+  await expect.poll(() => readStorageWrites(page)).toBeGreaterThan(writesAfterNoop);
+});
+
+test("空账本停在过去的月份时重复清空，不会放行降级状态、盖掉盘里的原始数据", async ({ page }) => {
+  const readStored = () => page.evaluate(() => localStorage.getItem("pocket-ledger.v1"));
+
+  const poisoned = "null";
+  await page.addInitScript((raw) => {
+    localStorage.setItem("pocket-ledger.v1", raw);
+  }, poisoned);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
+  await expect(page.getByText(/还没有记录/).first()).toBeVisible();
+
+  await page.getByRole("button", { name: "上一个月" }).click();
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  const warning = page.getByRole("status").filter({ hasText: "安全恢复视图" });
+  await expect(warning).toBeVisible();
+  await expect(readStored()).resolves.toBe(poisoned);
+
+  await wipeFromSettings(page);
+  // 「系统不会自动覆盖原始数据」这句话，靠的是什么都没改到的那一步根本不会落盘。
+  await expect(readStored()).resolves.toBe(poisoned);
+  await expect(warning).toBeVisible();
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
 });
 
 test("账本已经是演示数据时，恢复演示不给撤销按钮", async ({ page }) => {

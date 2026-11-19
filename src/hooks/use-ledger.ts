@@ -540,18 +540,20 @@ export function useLedger() {
   }, [takeSnapshot, invalidateUndo, commitSnapshot, writeFilters, writeView, armUndo]);
 
   /**
-   * 清空只动记录与预算，但撤销按整套快照还回来：被清空一起抹掉的筛选条件也跟着回到清空之前。
-   * 主题与月份视图不在清空的范围内，快照里记的就是当下这两份，写回等于没动它们。
-   * 本来就没有记录与预算、筛选与月份也停在默认位置时，清空什么都没动：返回 null，
-   * 不给一个点下去只会说「已经无法撤销」的按钮。
+   * 清空动的是记录、预算与筛选，所以「本来就什么都没得清」也只由这三样说了算：三项都空 / 默认，
+   * 这一步就在任何 writer 之前返回 null。
+   * 月份视图不归清空管（快照里记的就是当下那个月，写回等于没动它），所以它不能进这个判断——
+   * 停在过去的月份里点清空，记录与预算照样一笔没少，那仍然是一次什么都没改到的点击。
+   * 判错这一条，代价不止是多一颗点了只会说「已经无法撤销」的按钮：一旦往下走，`[]` 与 `{}` 都是
+   * 新引用，writer 会把这次点击当成真改动，放行降级状态、把盘里唯一那份原始数据盖掉。
+   * 真的清了东西才留一步撤销：它按整套快照还回来，被清空一起抹掉的筛选条件也跟着回到清空之前。
    */
   const wipeAll = useCallback((): UndoAction | null => {
     const before = takeSnapshot();
     if (
       before.records.length === 0 &&
       Object.keys(before.budgets).length === 0 &&
-      isDefaultFilters(before.filters) &&
-      isCurrentMonthView(before.view)
+      isDefaultFilters(before.filters)
     ) {
       invalidateUndo();
       return null;
