@@ -15,7 +15,7 @@ import { SummaryCards } from "@/src/components/summary-cards";
 import { useActiveSection } from "@/src/hooks/use-active-section";
 import { useLedger } from "@/src/hooks/use-ledger";
 import { type LedgerRecord, type RecordDraft, describeRecord, monthLabel } from "@/src/lib/ledger";
-import { notifyChange, UNDO_WINDOW_SECONDS } from "@/src/lib/ledger-toast";
+import { notifyChange, notifyFailure, UNDO_WINDOW_SECONDS } from "@/src/lib/ledger-toast";
 
 /**
  * 撤销窗口只在提示还看得见的那段时间里成立，而且下一次改动就会把它结束掉。
@@ -62,7 +62,9 @@ export default function App() {
 
   function askClearBudget(category: string) {
     if (!ledger.budgets[category]) {
-      notifyChange(`${category} 还没有设置预算`);
+      // 这个分类本来就没有预算，等于什么都没做，这句就只能占说明位：
+      // 走 notifyChange 会把还挂着的「撤销」连按钮一起顶掉，可上一步照样作数。
+      notifyFailure(`${category} 还没有设置预算`);
       return;
     }
     setConfirm({

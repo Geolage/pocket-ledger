@@ -225,6 +225,23 @@ test("normalizeLedgerState 不替缺了备注或时间戳的旧记录补值", ()
   assert.equal(Object.hasOwn(state.records[0], "createdAt"), false);
 });
 
+test("normalizeLedgerState 丢掉算不出分的金额，落盘的字节因此导得回来", () => {
+  // 1e308 是有限正数，可 cents() 乘 100 会溢出成 Infinity：统计里加出 Infinity，
+  // JSON.stringify 又把 Infinity 写成 null，下一次读回来这条预算就凭空消失了。
+  // 「导出去再导回来对不上」不能成为界面的既定行为。
+  const state = normalizeLedgerState({
+    records: [record({ id: "ok", amount: 10 }), record({ id: "overflow", amount: 1e308 })],
+    budgets: { 餐饮: 1e308, 交通: 50, 住房: Number.NaN, 购物: "35.5" },
+  });
+
+  assert.deepEqual(
+    state.records.map((item) => item.id),
+    ["ok"],
+  );
+  // 字符串写法照样收（Number 转得动、分也算得出），过界与读不出数的才被丢掉。
+  assert.deepEqual(state.budgets, { 交通: 50, 购物: 35.5 });
+});
+
 test("loadState 也不让盘里那份脏备注进状态", () => {
   reset();
   // 备份导入这条路是新的，本机存储这条路一直如此：同一个 normaliser，缺的正是这一条。

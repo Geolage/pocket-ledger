@@ -221,7 +221,7 @@ test("降级视图下导入：先说清覆盖的是保留下来的原始数据�
   await expect(preview).toContainText("将导入 1 笔记录、0 个预算");
   // 警告那一句自己是 alert，预览整块不是：标成 assertive 的容器会连两颗按钮的名字一起打断用户念出来。
   await expect(backupRegion(page).getByRole("alert")).toContainText(
-    "确认导入会覆盖系统保留的那份无法读取的原始数据，覆盖后无法找回。",
+    "确认导入会覆盖系统保留的那份无法读取的原始数据，覆盖后无法找回；之后的「撤销」只还原导入前的这一屏。",
   );
 
   await backupRegion(page).getByRole("button", { name: "取消" }).click();
@@ -237,8 +237,13 @@ test("降级视图下导入：先说清覆盖的是保留下来的原始数据�
   await expect(page.getByText("降级视图导进来的那笔")).toBeVisible();
   await expect(readStored()).resolves.not.toBe(poisoned);
   await expect(page.getByText(/安全恢复视图/)).toHaveCount(0);
-  // 上面那句「取消时不给撤销」也因此不是空断言：这一步真留下了撤销。
+
+  // 撤销照旧给，但它给的只有「导入前那一屏」：这一笔退回去了，盘里那份原始数据却回不来。
+  // 警告后半句说的就是这个分工，这两行断言就是它的凭据——按钮不是「覆盖也能退回去」的意思。
   await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByText("降级视图导进来的那笔")).toHaveCount(0);
+  await expect(readStored()).resolves.not.toBe(poisoned);
 });
 
 test("格式无效的备份文件只说一句无效，账本与提示外的界面都不动", async ({ page }) => {

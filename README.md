@@ -51,8 +51,8 @@ npm run preview
 ## Tests
 
 ```sh
-npm run test:unit   # Domain calculations and validation: 85 tests
-npm run test:e2e    # Desktop and mobile interactions: 70 tests
+npm run test:unit   # Domain calculations and validation: 86 tests
+npm run test:e2e    # Desktop and mobile interactions: 71 tests
 npm test            # Run both suites
 ```
 
@@ -70,7 +70,7 @@ Playwright uses port 4175 and isolated browser contexts, so it does not read or 
 - Storage key: `pocket-ledger.v1`; the legacy `xiaozhanben.v1` key is migrated automatically on first read.
 - Backups stay on the machine. JSON holds the whole ledger (format version 2: records, budgets, theme, categories) and CSV holds the records with a UTF-8 BOM so spreadsheets read Chinese text correctly. Importing validates the file first, then shows what it would replace and asks before replacing the current ledger.
 - Undo covers exactly one step and only while its notification is on screen; any later change takes that step over.
-- If a stored payload cannot be migrated, the app opens a read-safe view and leaves the original bytes in storage untouched, so nothing is overwritten before you decide what to do.
+- If a stored payload cannot be migrated, the app switches to a safe-recovery view and leaves the original bytes in storage untouched — nothing overwrites them until you make a real change to the ledger.
 - The demo ledger is generated from a fixed seed. All amounts, merchants, and people are fictional. Demo data can be restored or cleared from the settings page.
 - There is no login, cloud synchronization, or account connection. Amounts and budgets remain on the local machine.
 - The project demonstrates interface and interaction behavior only. It does not provide financial or investment advice.

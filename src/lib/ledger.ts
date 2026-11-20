@@ -434,8 +434,11 @@ export function isValidRecord(value: unknown): value is LedgerRecord {
     typeof r.id === "string" &&
     (r.type === "expense" || r.type === "income") &&
     typeof r.amount === "number" &&
-    Number.isFinite(r.amount) &&
+    // 只问「是不是有限正数」不够：金额一律按分来算（见 cents），1e308 是有限正数，
+    // 可乘上 100 就溢出成 Infinity——统计里加出 Infinity，落盘时 JSON.stringify 又把它写成 null，
+    // 这份文件再导回来就连这一笔都没了。算不出分的数不是账，别让它进状态。
     r.amount > 0 &&
+    Number.isSafeInteger(cents(r.amount)) &&
     typeof r.category === "string" &&
     r.category.length > 0 &&
     typeof r.date === "string" &&

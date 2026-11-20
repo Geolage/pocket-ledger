@@ -506,6 +506,12 @@ test("isValidRecord rejects incomplete or impossible records", () => {
   assert.equal(ledger.isValidRecord(record({ category: "" })), false);
   assert.equal(ledger.isValidRecord(record({ type: "transfer" })), false);
   assert.equal(ledger.isValidRecord(null), false);
+  // 有限正数不代表算得出分：1e308 乘 100 溢出成 Infinity，统计加出 Infinity，
+  // 而 JSON.stringify 把 Infinity 写成 null——这份备份再导回来，连这一笔都不存在了。
+  assert.equal(ledger.isValidRecord(record({ amount: 1e308 })), false);
+  assert.equal(ledger.isValidRecord(record({ amount: Number.POSITIVE_INFINITY })), false);
+  // 分还在安全整数里的那个数量级（约 ¥90 万亿）照旧收，别把这条做成数量级歧视。
+  assert.equal(ledger.isValidRecord(record({ amount: 9e13 })), true);
 });
 
 test("favicon href encodes the selected theme colors", () => {

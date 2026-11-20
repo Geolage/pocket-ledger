@@ -244,16 +244,19 @@ export function storedBytes(): number {
 /**
  * 预算按分类名取值，所以键先去空格；同一分类写成 "餐饮" 与 " 餐饮 " 时
  * 合并成一笔，金额按分相加，避免两条各算一半或浮点误差。
+ * 要落得住的数必须是算得出分的有限正数：1e308 这类「有限但过界」的写法乘 100 会溢出成 Infinity，
+ * 而 Infinity 落盘时 JSON 写不出（变成 null），下次读回来这条预算就凭空消失了——校验放行这种数，
+ * 「导出去再导回来对不上」就成了界面上的既定行为。
  */
 function sanitizeBudgets(input: unknown): Budgets {
   if (!input || typeof input !== "object") return {};
   const totals = new Map<string, number>();
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     const category = key.trim();
-    const amount = Number(value);
+    const amount = cents(Number(value));
     if (!category) continue;
-    if (!Number.isFinite(amount) || amount <= 0) continue;
-    totals.set(category, (totals.get(category) ?? 0) + cents(amount));
+    if (!Number.isSafeInteger(amount) || amount <= 0) continue;
+    totals.set(category, (totals.get(category) ?? 0) + amount);
   }
   const out: Budgets = {};
   for (const [category, value] of totals) out[category] = fromCents(value);

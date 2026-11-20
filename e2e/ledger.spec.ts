@@ -995,6 +995,33 @@ test("取消分类预算后可以撤销", async ({ page }) => {
   await expect(notice).toContainText("餐饮 超出");
 });
 
+test("再取消一次已经没有预算的分类，不花掉上一步的撤销", async ({ page }) => {
+  const budget = page.locator("#budget");
+  const notice = page.getByRole("status").filter({ hasText: "已超出预算" });
+  await budget.getByLabel("每月预算（元）").fill("1");
+  await budget.getByRole("button", { name: "保存预算" }).click();
+  await expect(notice).toContainText("餐饮 超出");
+
+  // 第一次取消是真改动：撤销照旧挂上。
+  await budget.getByRole("button", { name: "取消该分类预算" }).click();
+  await page
+    .getByRole("dialog", { name: "取消该分类预算？" })
+    .getByRole("button", { name: "取消预算" })
+    .click();
+  await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();
+
+  // 第二次点同一颗按钮，可这个分类已经没有预算了：什么都没做，也就没资格结束上一步。
+  // 这句要是占了撤销那条提示位，按钮会被顶掉，而那一步其实还作数——界面就骗了人一次。
+  await budget.getByRole("button", { name: "取消该分类预算" }).click();
+  await expect(page.getByText(/还没有设置预算/)).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "取消该分类预算？" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(1);
+
+  // 反向对照：那颗按钮还管用的是因为上一步真没被这次点击接管，预算照样回来了。
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(notice).toContainText("餐饮 超出");
+});
+
 test("新增分类后可以撤销，落盘的分类跟着一起回去", async ({ page }) => {
   const customCount = () =>
     page.evaluate(() => {

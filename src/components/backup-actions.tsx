@@ -16,8 +16,11 @@ const INVALID_BACKUP_MESSAGE = "备份文件格式无效，请重新导出";
 /**
  * 设置页那句「系统不会自动覆盖原始数据」在降级视图里是真话，而确认导入是唯一一次用户主动去覆盖它：
  * 这一句必须写在按下确认之前的那块预览里，瞒着这一点，界面就等于撒了谎。
+ * 后半句同样是必须的：撤销还原的一直是「按下按钮之前的那一屏」，快照里从来就没有那份原始数据，
+ * 不写清楚，一颗「撤销」按钮很容易被读成「覆盖也能退回去」。
  */
-const DEGRADED_IMPORT_WARNING = "确认导入会覆盖系统保留的那份无法读取的原始数据，覆盖后无法找回。";
+const DEGRADED_IMPORT_WARNING =
+  "确认导入会覆盖系统保留的那份无法读取的原始数据，覆盖后无法找回；之后的「撤销」只还原导入前的这一屏。";
 
 interface Props {
   ledger: LedgerApi;
@@ -90,14 +93,15 @@ export function BackupActions({ ledger }: Props) {
     closePreview();
     const undo = ledger.importState(pending);
     // 导回来的就是当前这本账：那句话不能说成成功，也不该挂一个什么都撤不回来的按钮。
-    // 它和上面两句导出提示的差别是有意的：导入真的换掉了账本，所以它照旧占那个唯一的撤销位，
-    // 上一步（如果还挂着）到此结束；导出什么都没写，没资格去动那个位置。
-    notifyChange(
-      undo
-        ? `已导入 ${pending.records.length} 笔记录`
-        : "这份备份与当前账本一模一样，没有导入任何内容",
-      undo,
-    );
+    // 它走说明位还有一个更实在的理由：这一步什么都没改，上一步的撤销因此照样作数，
+    // 而 notifyChange 会连按钮一起顶掉。
+    if (!undo) {
+      notifyMessage("这份备份与当前账本一模一样，没有导入任何内容");
+      return;
+    }
+    // 导入真的换掉了账本，所以它占那个唯一的撤销位，上一步（如果还挂着）到此结束；
+    // 上面那两句导出提示则相反——什么都没写，没资格去动那个位置。
+    notifyChange(`已导入 ${pending.records.length} 笔记录`, undo);
   }
 
   return (
