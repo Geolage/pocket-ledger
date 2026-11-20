@@ -115,6 +115,33 @@ test("没有记录时 CSV 只有表头，没有空行", () => {
   assert.equal(recordsToCsv([]), HEADER);
 });
 
+test("没有写入时刻的记录在 CSV 里留一个空数字格，而不是写着 undefined", () => {
+  // createdAt 在旧数据与手改的备份里可能压根没有这一项（见 keepNormalizedRecords）。
+  // String(undefined) 会把「undefined」这七个字母写进一列本该是数字的格子里，
+  // 用户拿它做表就当成一个值去读；空着才是「这份文件没写过时刻」的说法。
+  const stampless = {
+    id: "r9",
+    type: "expense",
+    amount: 8.5,
+    category: "交通",
+    date: "2026-11-05",
+    note: "地铁",
+  };
+
+  assert.equal(parseCsv(recordsToCsv([stampless]))[1][6], "");
+  // 整行钉住：那一格一个字符都没有，行尾直接是逗号。
+  assert.equal(
+    recordsToCsv([stampless]).split(/\r?\n/)[1],
+    '"r9","expense",8.5,"交通","2026-11-05","地铁",',
+  );
+
+  // 反向对照：同一份记录补上时刻，那一格就写数字，说明上面那个空格测的确实是缺项。
+  assert.equal(
+    recordsToCsv([{ ...stampless, createdAt: 1732500000000 }]).split(/\r?\n/)[1],
+    '"r9","expense",8.5,"交通","2026-11-05","地铁",1732500000000',
+  );
+});
+
 test("stateToBackup writes versioned JSON", () => {
   const json = stateToBackup({ records: [], budgets: {}, theme: "celadon", categories: [] });
   const parsed = JSON.parse(json);

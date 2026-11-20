@@ -144,6 +144,55 @@ test("recordsOfMonth keeps only valid records in the requested month", () => {
   );
 });
 
+/** 没有 createdAt 这一项的记录：旧数据与手改过的备份都可能缺着它（见 keepNormalizedRecords）。 */
+function noStamp(id, date = "2026-11-05") {
+  return { id, type: "expense", amount: 10, category: "餐饮", date };
+}
+
+test("compareRecordsForDisplay 日期新的在上，同日按写入时刻倒序", () => {
+  const order = (records) => [...records].sort(ledger.compareRecordsForDisplay).map((r) => r.id);
+
+  assert.deepEqual(
+    order([record({ id: "old", createdAt: 1 }), record({ id: "new", createdAt: 2 })]),
+    ["new", "old"],
+  );
+  // 跨日比日期，不看时刻：早一天但记得晚的那笔，还是排在晚一天记的那笔下面。
+  assert.deepEqual(
+    order([
+      record({ id: "early-day", date: "2026-11-05", createdAt: 999 }),
+      record({ id: "late-day", date: "2026-11-06", createdAt: 1 }),
+    ]),
+    ["late-day", "early-day"],
+  );
+
+  // 反向对照：同一天同一毫秒（连点两笔时 Date.now() 真会撞上）也要有个先后，
+  // 而不是把 0 交给 sort 的稳定性去决定这一屏的顺序。
+  assert.deepEqual(order([record({ id: "z", createdAt: 7 }), record({ id: "a", createdAt: 7 })]), [
+    "a",
+    "z",
+  ]);
+});
+
+test("compareRecordsForDisplay 缺了写入时刻时按日期与 id 定序，不减出 NaN", () => {
+  const order = (records) => [...records].sort(ledger.compareRecordsForDisplay).map((r) => r.id);
+
+  // 这笔缺项在界面上照样得有个说得清的位置：`b.createdAt - a.createdAt` 在这里减出 NaN，
+  // Array#sort 当作没收到比较结果，同月记录于是退化成进场顺序，用户每次刷新看到的排列都能变。
+  assert.deepEqual(order([noStamp("z"), noStamp("a")]), ["a", "z"]);
+  assert.deepEqual(order([noStamp("b", "2026-11-06"), noStamp("a", "2026-11-05")]), ["b", "a"]);
+
+  // 混着放：有时刻的按时刻排在上面，「不知道什么时候记的」不许蒙到已知的新账前面。
+  assert.deepEqual(order([noStamp("stampless"), record({ id: "stamped", createdAt: 1 })]), [
+    "stamped",
+    "stampless",
+  ]);
+
+  // 决定性：同一批记录换个进场顺序，排出来还是同一屏——这正是 NaN 那条路丢掉的保证。
+  const mixed = [noStamp("c"), record({ id: "a", createdAt: 5 }), noStamp("b")];
+  assert.deepEqual(order(mixed), order([...mixed].reverse()));
+  assert.deepEqual(order(mixed), ["a", "b", "c"]);
+});
+
 test("summarize totals income, expense, balance and counts in integer cents", () => {
   const summary = ledger.summarize([
     record({ id: "a", type: "income", amount: 1000.01 }),

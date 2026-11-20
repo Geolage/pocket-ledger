@@ -19,6 +19,7 @@ import {
   budgetSummary,
   categoryColorIndex,
   cents,
+  compareRecordsForDisplay,
   dailyExpenses,
   expensesByCategory,
   fromCents,
@@ -364,6 +365,8 @@ export function useLedger() {
 
   const visibleRecords = useMemo(() => {
     const keyword = activeFilters.keyword.trim().toLowerCase();
+    // 排列规则交给领域层（见 compareRecordsForDisplay）：这一列里缺写入时刻的记录真的存在，
+    // 现场减一下就会减出 NaN，那一屏的顺序从此交给运气。
     return monthRecords
       .filter((record) => {
         if (activeFilters.type !== "all" && record.type !== activeFilters.type) return false;
@@ -379,10 +382,7 @@ export function useLedger() {
           return false;
         return true;
       })
-      .sort((a, b) => {
-        if (a.date === b.date) return b.createdAt - a.createdAt;
-        return a.date < b.date ? 1 : -1;
-      });
+      .sort(compareRecordsForDisplay);
   }, [monthRecords, activeFilters]);
 
   const addRecord = useCallback(

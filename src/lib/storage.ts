@@ -78,19 +78,18 @@ function keepNormalizedRecords(input: unknown): LedgerRecord[] {
   for (const item of input) {
     try {
       if (!isValidRecord(item)) continue;
-      const record = item as LedgerRecord;
-      const category = record.category.trim();
+      const category = item.category.trim();
       if (!category) continue;
-      const kept: Partial<LedgerRecord> = {
-        id: record.id,
-        type: record.type,
-        amount: record.amount,
+      const kept: LedgerRecord = {
+        id: item.id,
+        type: item.type,
+        amount: item.amount,
         category,
-        date: record.date,
+        date: item.date,
       };
-      if (typeof record.note === "string") kept.note = record.note;
-      if (Number.isFinite(record.createdAt)) kept.createdAt = record.createdAt;
-      out.push(kept as LedgerRecord);
+      if (typeof item.note === "string") kept.note = item.note;
+      if (Number.isFinite(item.createdAt)) kept.createdAt = item.createdAt;
+      out.push(kept);
     } catch {
       // 读不出来的记录不算数据，直接跳过。
     }

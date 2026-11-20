@@ -17,8 +17,15 @@ export interface LedgerRecord {
   amount: number;
   category: string;
   date: string; // YYYY-MM-DD
-  note: string;
-  createdAt: number;
+  /** 用户没写备注时就是没有这一项：账单里渲染成「无备注」，筛选与「改没改」的比对都按空串算。 */
+  note?: string;
+  /**
+   * 同一天里的上下排列依据，旧数据与手改过的备份都可能没有这一项，所以这里刻意不给默认值：
+   * 写 Date.now() 会把用户的账本重新排一遍，写 0 是凭空捏一个 1970 年，
+   * 从 date 现推又只是把 compareRecordsForDisplay 要排的那个键抄一遍。
+   * 缺着怎么排，是那条规则的事。
+   */
+  createdAt?: number;
 }
 
 export type Budgets = Record<string, number>;
@@ -195,6 +202,24 @@ export function recordsOfMonth(
     const date = parseDate(r.date);
     return date !== null && isSameMonth(date, year, month);
   });
+}
+
+/**
+ * 账单那一列的排列规则：日期新的在上，同一天里写入时刻新的在上。
+ * 放在领域层而不是 hook 的 sort 里，是因为「缺了 createdAt」这一种输入必须由这条规则自己交代：
+ * 直接减 `b.createdAt - a.createdAt` 会减出 NaN，Array#sort 当作没收到比较结果，
+ * 同月的上下顺序就退化成进场顺序，同一份账本两次刷新能排出两屏。
+ * 没有时刻的那些按 id 定序、并且一律排在有时刻的那些之后——「不知道什么时候记的」
+ * 不该靠随机 id 或数组顺序蒙到已知的新账前面；时刻相同（连点两笔时 Date.now() 会撞在同一毫秒）
+ * 同样按 id 收口，所以同一批记录无论什么进场顺序，排出来都是同一屏。
+ */
+export function compareRecordsForDisplay(a: LedgerRecord, b: LedgerRecord): number {
+  if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+  const left = a.createdAt ?? Number.NEGATIVE_INFINITY;
+  const right = b.createdAt ?? Number.NEGATIVE_INFINITY;
+  if (left !== right) return right - left;
+  if (a.id === b.id) return 0;
+  return a.id < b.id ? -1 : 1;
 }
 
 /**

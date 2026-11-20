@@ -46,7 +46,9 @@ export function recordsToCsv(records: readonly LedgerRecord[]): string {
       csvCell(record.date),
       // 旧数据里可能压根没有备注这一项（界面把它渲染成「无备注」），这里也按空串写。
       csvCell(record.note ?? ""),
-      String(record.createdAt),
+      // 没有写入时刻的记录留一个空数字格：String(undefined) 会在这列本该是数字的地方写出
+      // 「undefined」七个字母，而用户是把这份文件拿去表格软件里看的。
+      record.createdAt ?? "",
     ].join(","),
   );
   return [CSV_HEADER.join(","), ...rows].join("\n");
