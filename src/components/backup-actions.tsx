@@ -1,6 +1,6 @@
 /* 备份与恢复：导出写出来的文件只存在本机；导入会把当前账本整份换掉，所以确认前必须先看一眼。 */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TriangleAlertIcon } from "lucide-react";
@@ -25,8 +25,26 @@ interface Props {
 
 export function BackupActions({ ledger }: Props) {
   const fileInput = useRef<HTMLInputElement>(null);
+  const importButton = useRef<HTMLButtonElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
   // 存的是 parseBackupJson 校验过的那份状态，不是文件原文：脏记录、假分类到这里已经不存在了。
   const [pending, setPending] = useState<LedgerState | null>(null);
+
+  /**
+   * 预览出现时把焦点交给「确认导入」。不是锦上添花：选完文件焦点本来停在那个 sr-only 的 input 上，
+   * 键盘与读屏用户看不见自己刚选中的东西，也摸不到紧接着那颗按钮。
+   * 反过来「把焦点还给导入 JSON」不能写在这里——这个 effect 首屏也会跑一次（那时还没有预览），
+   * 一加载就把焦点按钮抢下来比丢焦点更莫名，所以交还放在真正关掉预览的那两个动作里。
+   */
+  useEffect(() => {
+    if (pending) confirmButton.current?.focus();
+  }, [pending]);
+
+  /** 关掉预览，并把焦点送回它原来站着的地方。 */
+  function closePreview() {
+    setPending(null);
+    importButton.current?.focus();
+  }
 
   function exportJson() {
     downloadTextFile(
@@ -58,6 +76,9 @@ export function BackupActions({ ledger }: Props) {
     if (!parsed) {
       // 读不懂这份文件不是账本出了错：这句只占说明位，不该顺手把还挂着的「撤销」按下去。
       notifyFailure(INVALID_BACKUP_MESSAGE);
+      // 预览可能已经开着（先选过好文件、这次换了份坏的）。它不会自己消失，
+      // 而焦点本来停在那个 sr-only 的 input 上——不关掉，屏幕阅读器读完这句错误就没了下文。
+      closePreview();
       return;
     }
     setPending(parsed);
@@ -65,7 +86,8 @@ export function BackupActions({ ledger }: Props) {
 
   function confirmImport() {
     if (!pending) return;
-    setPending(null);
+    // 先交还焦点再改状态：这颗按钮此刻还挂在树上，等 React 卸载了它，焦点已经无处可放了。
+    closePreview();
     const undo = ledger.importState(pending);
     // 导回来的就是当前这本账：那句话不能说成成功，也不该挂一个什么都撤不回来的按钮。
     // 它和上面两句导出提示的差别是有意的：导入真的换掉了账本，所以它照旧占那个唯一的撤销位，
@@ -95,7 +117,12 @@ export function BackupActions({ ledger }: Props) {
           <Button type="button" variant="outline" onClick={exportCsv}>
             导出 CSV
           </Button>
-          <Button type="button" variant="outline" onClick={() => fileInput.current?.click()}>
+          <Button
+            ref={importButton}
+            type="button"
+            variant="outline"
+            onClick={() => fileInput.current?.click()}
+          >
             导入 JSON
           </Button>
           <input
@@ -114,22 +141,23 @@ export function BackupActions({ ledger }: Props) {
         </div>
 
         {pending && (
-          <div role="alert" className="rounded-lg bg-muted p-3 text-[13px]">
+          <div role="status" className="rounded-lg bg-muted p-3 text-[13px]">
             <p>
               将导入 {pending.records.length} 笔记录、{Object.keys(pending.budgets).length} 个预算，
               当前账本会被这份文件替换。
             </p>
             {ledger.degraded && (
-              <p className="mt-2 flex items-start gap-1.5 font-medium text-warning">
+              // 只有这一句是 alert：整块都标成 assertive，读屏就会连两颗按钮的名字一起打断用户念出来。
+              <p role="alert" className="mt-2 flex items-start gap-1.5 font-medium text-warning">
                 <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                 {DEGRADED_IMPORT_WARNING}
               </p>
             )}
             <div className="mt-3 flex flex-wrap gap-2">
-              <Button type="button" onClick={confirmImport}>
+              <Button ref={confirmButton} type="button" onClick={confirmImport}>
                 确认导入
               </Button>
-              <Button type="button" variant="outline" onClick={() => setPending(null)}>
+              <Button type="button" variant="outline" onClick={closePreview}>
                 取消
               </Button>
             </div>
