@@ -259,7 +259,11 @@ function sanitizeBudgets(input: unknown): Budgets {
     totals.set(category, (totals.get(category) ?? 0) + amount);
   }
   const out: Budgets = {};
-  for (const [category, value] of totals) out[category] = fromCents(value);
+  for (const [category, value] of totals) {
+    // 每一项单独算得出分，不代表加起来还算得出来：同一分类写成 "餐饮"、" 餐饮 "、"  餐饮 "
+    // 会并成一笔，三份 9e13 加出来就出了安全整数区，落盘写得下、读回来却不再是同一个数。
+    if (Number.isSafeInteger(value)) out[category] = fromCents(value);
+  }
   return out;
 }
 

@@ -51,7 +51,7 @@ npm run preview
 ## 测试
 
 ```sh
-npm run test:unit   # 领域计算与校验：86 项
+npm run test:unit   # 领域计算与校验：87 项
 npm run test:e2e    # 桌面与手机交互：71 条
 npm test            # 依次运行两部分
 ```

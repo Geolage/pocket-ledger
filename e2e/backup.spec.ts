@@ -221,7 +221,7 @@ test("降级视图下导入：先说清覆盖的是保留下来的原始数据�
   await expect(preview).toContainText("将导入 1 笔记录、0 个预算");
   // 警告那一句自己是 alert，预览整块不是：标成 assertive 的容器会连两颗按钮的名字一起打断用户念出来。
   await expect(backupRegion(page).getByRole("alert")).toContainText(
-    "确认导入会覆盖系统保留的那份无法读取的原始数据，覆盖后无法找回；之后的「撤销」只还原导入前的这一屏。",
+    "确认导入会覆盖系统保留的那份无法读取的原始数据，覆盖后无法找回；之后的「撤销」只把账本还原成导入之前那样。",
   );
 
   await backupRegion(page).getByRole("button", { name: "取消" }).click();

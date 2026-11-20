@@ -242,6 +242,23 @@ test("normalizeLedgerState 丢掉算不出分的金额，落盘的字节因此�
   assert.deepEqual(state.budgets, { 交通: 50, 购物: 35.5 });
 });
 
+test("sanitizeBudgets 合并之后的总数也要算得出分，否则宁可不落这条预算", () => {
+  // 每一项单看都过关：9e13 的分是 9e15，还在安全整数里。
+  // 可同一分类写成 "餐饮"、" 餐饮 "、"  餐饮 " 会并成一笔，三份加出来就出了安全整数区——
+  // 这种数落盘写得下、读回来却已经不是原来那个数，导出去再导回来就对不上了。
+  const state = normalizeLedgerState({
+    budgets: { 餐饮: 9e13, " 餐饮 ": 9e13, "  餐饮 ": 9e13, 交通: 50 },
+  });
+
+  // 过界的那条整个不要（它本来就没法被精确表示），同文件里算得出来的那条照旧留着。
+  assert.deepEqual(state.budgets, { 交通: 50 });
+
+  // 反向对照：两份合并之后仍在安全整数区间的（约 ¥9 万亿），这一条必须收。
+  assert.deepEqual(normalizeLedgerState({ budgets: { 餐饮: 4.5e13, " 餐饮 ": 4.5e13 } }).budgets, {
+    餐饮: 9e13,
+  });
+});
+
 test("loadState 也不让盘里那份脏备注进状态", () => {
   reset();
   // 备份导入这条路是新的，本机存储这条路一直如此：同一个 normaliser，缺的正是这一条。
