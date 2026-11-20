@@ -333,6 +333,38 @@ test("ledgerStatesEqual 分得清金额、备注、顺序、预算、分类与�
   assert.equal(ledgerStatesEqual(base, disabled), false);
 });
 
+test("ledgerStatesEqual 把「没写备注」与「备注是空串」看成同一份内容", () => {
+  // 备注这一项缺着、还是写着 ""，在界面上都是「无备注」，编辑与 CSV 也一律按空串算
+  // （见 applyRecordDraftById 与 recordsToCsv）。这份比较要是把两者当成两种内容，
+  // 一次什么都没改动的导入就会被判成改动：白落一笔盘，顺带放行降级状态里唯一留着的那份原始数据。
+  const noted = record({ id: "b", category: "交通", amount: 20 });
+  const noteless = stateSlice({
+    records: [
+      { id: "a", type: "expense", amount: 10, category: "餐饮", date: "2026-11-05", createdAt: 1 },
+      noted,
+    ],
+  });
+  assert.equal(ledgerStatesEqual(noteless, stateSlice()), true);
+
+  // 反向对照：真写了字的备注照样算一次改动，这条不是把比较松成一律相等。
+  assert.equal(
+    ledgerStatesEqual(
+      noteless,
+      stateSlice({ records: [record({ id: "a", note: "午餐" }), noted] }),
+    ),
+    false,
+  );
+});
+
+test("demoState 给同一天的每一笔都留了不一样的写入时刻", () => {
+  // 同日排序碰到并列只能按 id 收口，而 id 是随机生成的：演示数据一天里常有几笔，
+  // 时刻要是全撞在同一毫秒，用户每次按「恢复演示」都会看到一屏顺序不同的账单。
+  const stamps = demoState().records.map((item) => `${item.date}#${item.createdAt}`);
+  assert.ok(stamps.length > 0);
+  assert.equal(new Set(stamps).size, stamps.length);
+  assert.ok(stamps.every((stamp) => !stamp.endsWith("#undefined")));
+});
+
 test("ledgerStatesEqual 把两份空状态看成一致", () => {
   const empty = stateSlice({ records: [], budgets: {} });
   assert.equal(ledgerStatesEqual(empty, stateSlice({ records: [], budgets: {} })), true);

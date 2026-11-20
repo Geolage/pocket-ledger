@@ -136,7 +136,10 @@ function sameRecords(left: LedgerRecord[], right: LedgerRecord[]): boolean {
       record.amount === other.amount &&
       record.category === other.category &&
       record.date === other.date &&
-      record.note === other.note &&
+      // 备注缺着与写着空串在用户面前是同一件事：界面都渲染成「无备注」，编辑与 CSV 也都按空串算
+      // （见 applyRecordDraftById 与 recordsToCsv）。这里直接比 undefined 与 "" 就会把没改判成改了，
+      // 于是一笔白落的盘，顺带放行降级状态里那份唯一留着的原始数据。
+      (record.note ?? "") === (other.note ?? "") &&
       record.createdAt === other.createdAt
     );
   });
@@ -321,7 +324,10 @@ function buildDemoMonth(
       category,
       date: dateKey(new Date(year, month, day)),
       note,
-      createdAt: new Date(year, month, day).getTime(),
+      // 同一天要加着序号写：演示账本一天能有好几笔，撞在同一毫秒上，
+      // 同日排序就只能按 id 收口（见 compareRecordsForDisplay），而 id 是随机的——
+      // 同一份演示数据每次恢复演示都能排出不一样的上下顺序。
+      createdAt: new Date(year, month, day).getTime() + out.length,
     });
   };
 

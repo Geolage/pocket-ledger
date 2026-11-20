@@ -433,19 +433,46 @@ test("导入预览进出时焦点有着落：不去抢首屏焦点，也不把�
   await expect(backupRegion(page).getByRole("status")).toContainText("将导入 0 笔记录");
   await expect(confirmButton).toBeFocused();
 
-  // 键盘按回车取消：预览卸载掉的是当前这颗按钮，不显式交还的话焦点会掉回 <body>。
+  // 键盘确认这一步：焦点此刻在「确认导入」上，按下回车它自己就被卸载了，
+  // 不显式交还的话焦点掉回 <body>，用户连自己在哪儿都摸不到。
   await page.keyboard.press("Enter");
+  await expect(page.getByText("已导入 0 笔记录")).toBeVisible();
   await expect(backupRegion(page).getByRole("status")).toHaveCount(0);
   await expect(importButton).toBeFocused();
 
-  // 反向对照一：确认这条路同样得把焦点送回去，而且不能只靠按钮还留在 DOM 里。
-  await pickBackupFile(page, '{"records":[]}');
+  // 取消这条路单独走一遍：Tab 到「取消」再回车，预览同样要把人送回「导入 JSON」，
+  // 而预览里说的那一笔一个字都不该进账本。
+  await pickBackupFile(
+    page,
+    JSON.stringify({
+      records: [
+        {
+          id: "cancel-keeps-it-out",
+          type: "expense",
+          amount: 5,
+          category: "餐饮",
+          date: todayKey(),
+          note: "取消不该带进来的那笔",
+          createdAt: 1,
+        },
+      ],
+      budgets: {},
+    }),
+  );
+  await expect(backupRegion(page).getByRole("status")).toContainText("将导入 1 笔记录");
   await expect(confirmButton).toBeFocused();
+  await page.keyboard.press("Tab");
   await page.keyboard.press("Enter");
+  await expect(backupRegion(page).getByRole("status")).toHaveCount(0);
   await expect(importButton).toBeFocused();
+  await expect(page.getByText("取消不该带进来的那笔")).toHaveCount(0);
 
-  // 反向对照二：一份读不懂的文件也得照样把人送回这颗按钮，而不是丢在 input 上读完错误就没了下文。
+  // 反向对照：预览开着的时候换一份读不懂的文件，预览要一起关掉、人也要送回这颗按钮。
+  // 只挑一份坏文件测不出这一条——那种情况下本来就没有预览可关。
+  await pickBackupFile(page, '{"records":[]}');
+  await expect(backupRegion(page).getByRole("status")).toContainText("将导入 0 笔记录");
   await pickBackupFile(page, "{not json");
   await expect(page.getByText("备份文件格式无效，请重新导出")).toBeVisible();
+  await expect(backupRegion(page).getByRole("status")).toHaveCount(0);
   await expect(importButton).toBeFocused();
 });
