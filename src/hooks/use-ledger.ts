@@ -56,8 +56,9 @@ interface LedgerSnapshot {
 
 /**
  * 撤销一步要还原的东西，比落盘的那三份多：筛选条件与正在看的月份同样是用户看得见的位置。
- * 「清空所有数据」会把筛选一起清掉，「恢复演示」会把月份跳回本月、筛选清空——这两步是真的走了
- * 筛选与月份这两个 writer，只还原数据就等于悄悄换掉用户按下按钮时正在看的那一屏。
+ * 「清空所有数据」会把筛选一起清掉，「恢复演示」会把月份跳回本月、筛选清空——这两步合起来是真的
+ * 走了筛选与月份这两个 writer（清空只动筛选那一个，月份归恢复演示管），只还原数据就等于悄悄换掉
+ * 用户按下按钮时正在看的那一屏。
  * （删除、改名分类时界面上也会看到筛选回到「全部分类」，但那不是撤销还回来的：那一步从没碰过筛选
  * writer，是 activeFilters 那份投影发现筛的条件已经不在候选项里。）
  * 主题这一维现在只有导入备份写得出不一样的值（导入是本计划下一步的 importState，负载里带着主题）：
@@ -417,7 +418,13 @@ export function useLedger() {
         if (activeFilters.type !== "all" && record.type !== activeFilters.type) return false;
         if (activeFilters.category !== "all" && record.category !== activeFilters.category)
           return false;
-        if (keyword && !`${record.note} ${record.category}`.toLowerCase().includes(keyword))
+        if (
+          keyword &&
+          // 旧数据里可能压根没有备注这一项（界面把它渲染成「无备注」），这里也按空串算，
+          // 与领域层比较备注的口径一致。少了这个 ?? ""，模板字符串会把 undefined 拼进待匹配的那句话，
+          // 于是搜「undefined」能命中一条根本没写任何备注的账单。
+          !`${record.note ?? ""} ${record.category}`.toLowerCase().includes(keyword)
+        )
           return false;
         return true;
       })

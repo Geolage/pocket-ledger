@@ -139,6 +139,60 @@ test("关键词与类型筛选、空态和清除筛选", async ({ page }) => {
   await expect(page.getByText("筛选目标午餐")).toBeVisible();
 });
 
+test("缺了备注这一项的旧记录，不会被当成写着 undefined 的备注", async ({ page }) => {
+  await page.addInitScript(() => {
+    const now = new Date();
+    const pad = (value: number) => String(value).padStart(2, "0");
+    const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    localStorage.setItem(
+      "pocket-ledger.v1",
+      JSON.stringify({
+        // 记录校验（isValidRecord）不看备注，所以旧数据里 note 这一项可能压根不存在。
+        records: [
+          {
+            id: "no-note",
+            type: "expense",
+            amount: 12.34,
+            category: "餐饮",
+            date,
+            createdAt: Date.now(),
+          },
+          {
+            id: "with-note",
+            type: "expense",
+            amount: 8.5,
+            category: "交通",
+            date,
+            note: "地铁通勤",
+            createdAt: Date.now() + 1,
+          },
+        ],
+        budgets: {},
+      }),
+    );
+  });
+  await page.goto("/");
+
+  const noteless = page.getByRole("listitem").filter({ hasText: "无备注" });
+  await expect(noteless).toHaveCount(1);
+
+  const keyword = page.locator("#filter-keyword");
+  // 反向对照：没有备注这一项的那笔照样按分类名筛得出来，所以下面那句「筛不到」不是空断言。
+  await keyword.fill("餐饮");
+  await expect(noteless).toHaveCount(1);
+  await expect(page.getByRole("listitem").filter({ hasText: "地铁通勤" })).toHaveCount(0);
+
+  // 界面上这条就是空备注，可关键词一旦拼的是 `${record.note}`，
+  // undefined 就成了备注内容的一部分，搜这个词会命中一条什么都没写的账单。
+  await keyword.fill("undefined");
+  await expect(page.getByText("没有符合筛选条件的账单")).toBeVisible();
+  await expect(noteless).toHaveCount(0);
+
+  // 真写了备注的那笔照常筛得到。
+  await keyword.fill("地铁");
+  await expect(page.getByRole("listitem").filter({ hasText: "地铁通勤" })).toHaveCount(1);
+});
+
 test("分类被改名后账单筛选退回全部分类，不会留下筛不出东西的旧名字", async ({ page }) => {
   const trigger = page.locator("#filter-category");
 

@@ -306,7 +306,8 @@ test("applyRecordDraftById 原样存回去时返回 null，而不是内容相同
   // map 每次都造新数组和新对象，光比引用分不出「改了一笔」和「一个字没改的保存」。
   // 落不落盘、放行不放行降级状态、上一步撤销留不留全看这个区别，所以判定得留在领域层。
   assert.equal(ledger.applyRecordDraftById(records, "a", draft()), null);
-  // 金额按分比：浮点噪声与表单的两位小数归一化都不该被当成改动。
+  // 表单交来的 0.1 + 0.2 先按分归一化成 0.3，写进去的和存着的是同一个数，
+  // 落盘的字节一个不差，所以浮点噪声不算改动。
   assert.equal(
     ledger.applyRecordDraftById(
       [record({ id: "a", amount: 0.3 })],
@@ -378,6 +379,34 @@ test("applyRecordDraftById 改到内容才给新列表，并保住 createdAt 与
   assert.ok(ledger.applyRecordDraftById([record({ id: "a" })], "a", draft({ date: "2026-11-06" })));
 });
 
+test("applyRecordDraftById 比的是要写进去的那份值，脏金额会被这次保存归一化掉", () => {
+  // 判定问的是「这次保存会不会写下不一样的字节」，所以逐项比真正落盘的那份值，不按分凑近似。
+  // 存的金额从不过两位小数校验（见 isValidRecord），0.145 真的可能躺在盘里：
+  // 按分看它和 0.14 是一回事，落盘却是两个数，那是一次真改动。
+  const fromDraft = ledger.applyRecordDraftById(
+    [record({ id: "a", amount: 0.145 })],
+    "a",
+    draft({ amount: 0.14 }),
+  );
+  assert.ok(fromDraft);
+  assert.equal(fromDraft[0].amount, 0.14);
+
+  // 草稿自己也带着三位小数时同理：要写进去的是归一化后的 0.14，存着的是 0.145。
+  const fromDirtyDraft = ledger.applyRecordDraftById(
+    [record({ id: "a", amount: 0.145 })],
+    "a",
+    draft({ amount: 0.145 }),
+  );
+  assert.ok(fromDirtyDraft);
+  assert.equal(fromDirtyDraft[0].amount, 0.14);
+
+  // 反向对照：这个数已经原样写在那里了，再存一次就真是一个字节都没变。
+  assert.equal(
+    ledger.applyRecordDraftById([record({ id: "a", amount: 0.14 })], "a", draft({ amount: 0.14 })),
+    null,
+  );
+});
+
 test("setBudgetAmount 预算没变时返回 null，而不是内容相同的新对象", () => {
   const budgets = { 餐饮: 100, 交通: 50 };
 
@@ -385,6 +414,7 @@ test("setBudgetAmount 预算没变时返回 null，而不是内容相同的新�
   // 于是白落一笔盘、放行降级状态、关掉撤销窗口——判定的口径要和写入口径一致。
   assert.equal(ledger.setBudgetAmount(budgets, "餐饮", 100), null);
   assert.equal(ledger.setBudgetAmount(budgets, " 餐饮 ", 100), null);
+  // 要写进去的是归一化后的 0.3，键里存的也是 0.3：同一个数，落盘一个字节都不差。
   assert.equal(ledger.setBudgetAmount({ 餐饮: 0.3 }, "餐饮", 0.1 + 0.2), null);
   // 0 本来就写在那里，原样保存同样没改任何东西。
   assert.equal(ledger.setBudgetAmount({ 餐饮: 0 }, "餐饮", 0), null);
@@ -403,8 +433,20 @@ test("setBudgetAmount 写出归一化后的预算，其余键原样保留", () =
 
   // 还没有这条预算时，即便要写 0 也是一次真改动：表里从此多了这个键。
   assert.deepEqual(ledger.setBudgetAmount({}, "餐饮", 0), { 餐饮: 0 });
-  // 盘里读回来的脏值按分比不出数，就照改动重写一遍归一化后的值。
+  // 键里躺着的脏值和要写进去的那个数不是同一个值，就照改动重写一遍，从此是干净的数字。
   assert.deepEqual(ledger.setBudgetAmount({ 餐饮: Number.NaN }, "餐饮", 100), { 餐饮: 100 });
+});
+
+test("setBudgetAmount 比的是要写进去的那份值，不是「是不是同一笔钱」", () => {
+  // 按分比会把字符串 "100" 当成 100，于是原样返回 null，那份脏值就永远留在盘里；
+  // 而这一笔保存写下去的是数字 100，JSON 里是两种写法，所以它得算一次真改动。
+  assert.deepEqual(ledger.setBudgetAmount({ 餐饮: "100" }, "餐饮", 100), { 餐饮: 100 });
+  // 按分凑近似还会把 0.145 和 0.14 看成同一笔钱，落盘写的却是两个不同的数。
+  assert.deepEqual(ledger.setBudgetAmount({ 餐饮: 0.145 }, "餐饮", 0.14), { 餐饮: 0.14 });
+  // 归一化之后真差了一分，那当然是一次改动：写进去的是 0.15。
+  assert.deepEqual(ledger.setBudgetAmount({ 餐饮: 0.14 }, "餐饮", 0.146), { 餐饮: 0.15 });
+  // 反向对照：同一种写法再存一次，一个字节都没变。
+  assert.equal(ledger.setBudgetAmount({ 餐饮: 0.14 }, "餐饮", 0.14), null);
 });
 
 test("isValidRecord rejects incomplete or impossible records", () => {

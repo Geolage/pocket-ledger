@@ -209,11 +209,14 @@ export function removeRecordById(records: LedgerRecord[], id: string): LedgerRec
 
 /**
  * 把草稿套到那个 id 上：用户看得见的五项（类型、按分算的金额、去空格的分类、日期、备注）
- * 全和现在一样就返回 null。id 不在列表里也算「什么都没改」——一次碰不到任何记录的保存没资格改动账本。
+ * 写进去的值和已有的值一模一样才算没改，那时返回 null。id 不在列表里也算「什么都没改」——
+ * 一次碰不到任何记录的保存没资格改动账本。
  * 和 removeRecordById 一样，「改没改」必须由领域层说清楚：`map` 每次都造新数组和新对象，
  * 光比引用分不出「改了一笔」和「原样存回去」，而调用方要靠这个区别决定落不落盘、
- * 放不放行降级状态、留不留得上一步的撤销。比较按分、按归一化之后的分类名做，
- * 判的正是「写进去的值和已有的值是不是同一个数、同一个名字」。
+ * 放不放行降级状态、留不留得上一步的撤销。
+ * 既然判的是「这次保存会不会写下不一样的字节」，就得逐项比要写进去的那份值，不能按分凑近似：
+ * 存着的金额从来不过两位小数校验（见 isValidRecord），所以 0.145 真的可能存在盘里，
+ * 而草稿归一化成 0.14 —— 落盘的字节会变，那就是一次真改动，顺带把这种脏值归一化掉。
  */
 export function applyRecordDraftById(
   records: LedgerRecord[],
@@ -226,7 +229,7 @@ export function applyRecordDraftById(
     (record) =>
       record.id === id &&
       (record.type !== draft.type ||
-        cents(record.amount) !== cents(amount) ||
+        record.amount !== amount ||
         record.category !== category ||
         record.date !== draft.date ||
         // 备注在旧数据里可能压根没有这一项，界面上渲染的就是空串，所以按空串比。
@@ -240,9 +243,11 @@ export function applyRecordDraftById(
 }
 
 /**
- * 给某个分类定下每月预算：那个名字已经存着一模一样的数额就返回 null。
- * 判定要连归一化一起做（分类名去空格、金额按分），否则「要写的值」和「比过的值」
- * 不是同一个口径。`{ ...current }` 每次都换新引用，writeBudgets 只认引用，于是原样保存
+ * 给某个分类定下每月预算：那个键里已经存着的值，和这次要写进去的值一模一样，才返回 null。
+ * 判定和写入共用同一份归一化（分类名去空格、金额按分），比的是「这次保存会写下什么」，
+ * 不是「这两个数是不是同一笔钱」：`{ 餐饮: "100" }` 里那个字符串落成的字节和数字 100 不同，
+ * 所以那仍然是一次真改动，顺带把它归一化成干净的数字。NaN 之类的脏值同理。
+ * `{ ...current }` 每次都换新引用，writeBudgets 只认引用，于是原样保存
  * 也会落盘、放行降级状态、关掉上一步的撤销——一笔没改动的点击不该有这些代价。
  */
 export function setBudgetAmount(
@@ -253,8 +258,8 @@ export function setBudgetAmount(
   const name = category.trim();
   const value = cents(amount);
   // 有键才算「本来就是这个数」：还没有这条预算时，即便要写 0 也是一次真改动。
-  // 读不出数的历史脏值（NaN、字符串）比不中，照样重写一遍归一化后的值。
-  if (Object.hasOwn(budgets, name) && cents(budgets[name]) === value) return null;
+  // 比的是 fromCents(value)，也就是这次真正落盘的那个数：键里存着别的写法（字符串、三位小数）都算改动。
+  if (Object.hasOwn(budgets, name) && budgets[name] === fromCents(value)) return null;
   return { ...budgets, [name]: fromCents(value) };
 }
 
