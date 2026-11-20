@@ -61,6 +61,16 @@ export function canonicalCategories(): CategoryDefinition[] {
  * 只保留能通过校验的记录，并把分类名去掉首尾空格。分类名是预算、颜色与图表取值的键，
  * " 餐饮 " 原样存着就会和 "餐饮" 各算一份，预算也就永远对不上。
  * 只剩空格的分类落不进任何统计，连同读字段都抛错的记录（恶意 getter）一起丢掉。
+ *
+ * 留下的那一笔要按已知的键重建，不能把原对象整个摊进状态：isValidRecord 只看 id/type/amount/
+ * category/date，备注与时间戳写着什么它不管，可账单列表是直接渲染 record.note 的（写着对象就让
+ * React 抛「Objects are not valid as a React child」，整页下线），同月记录还按 createdAt 排序
+ * （NaN 排不出顺序），导出 CSV 时更要拿备注调 .replace。文件里多出来的键同理，它们会跟着下一次
+ * 落盘原样进 localStorage，界面上却谁也不认。
+ * 形状不对就当成没写过，缺着的一律不补值：note 只认字符串、createdAt 只认有限数
+ * （Number.isFinite 不做类型转换，"yesterday" 这类字符串就算数不出来），而「没有备注这一项」
+ * 本来就是旧数据的合法形状——界面渲染成「无备注」，关键词筛选也按空串算。
+ * loadState 与 parseBackupJson 走的是同一道门，所以本机存储里那份被人改过的老数据也一起补上了。
  */
 function keepNormalizedRecords(input: unknown): LedgerRecord[] {
   if (!Array.isArray(input)) return [];
@@ -71,7 +81,16 @@ function keepNormalizedRecords(input: unknown): LedgerRecord[] {
       const record = item as LedgerRecord;
       const category = record.category.trim();
       if (!category) continue;
-      out.push({ ...record, category });
+      const kept: Partial<LedgerRecord> = {
+        id: record.id,
+        type: record.type,
+        amount: record.amount,
+        category,
+        date: record.date,
+      };
+      if (typeof record.note === "string") kept.note = record.note;
+      if (Number.isFinite(record.createdAt)) kept.createdAt = record.createdAt;
+      out.push(kept as LedgerRecord);
     } catch {
       // 读不出来的记录不算数据，直接跳过。
     }

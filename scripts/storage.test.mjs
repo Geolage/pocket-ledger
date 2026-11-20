@@ -184,6 +184,61 @@ test("normalizeLedgerState discards records whose category is only spaces", () =
   assert.deepEqual(state.categories, BUILTIN_CATEGORIES);
 });
 
+/**
+ * isValidRecord 只认 id/type/amount/category/date（见 ledger.ts），备注与时间戳写着什么它不管，
+ * 而账单列表直接渲染 record.note、同一天还按 createdAt 排序。所以「校验得过」和「用得上」之间
+ * 差着 keepNormalizedRecords 这一道：记录要按已知的键重建，而不是原样摊进状态。
+ * loadState 与 parseBackupJson 走的都是这一道，本机存储与用户手改的备份因此是同一套判法。
+ */
+test("normalizeLedgerState 只按已知的键重建记录，脏备注与脏时间戳都进不了状态", () => {
+  const state = normalizeLedgerState({
+    records: [
+      {
+        id: "dirty",
+        type: "expense",
+        amount: 10,
+        category: "餐饮",
+        date: "2026-11-05",
+        note: { evil: 1 }, // 对象会被 React 当成 child 直接抛错，整页下线
+        createdAt: "yesterday", // 排序时是 NaN，同月的上下排列就全乱了
+        smuggled: "跟着落盘的私货",
+        ["__proto__"]: { polluted: true }, // 手改的文件里什么键都可能多出来一个
+      },
+    ],
+  });
+
+  // 那一笔本身是有效数据，该留着——只是脏字段要当成没写过、未知键一个不带。
+  assert.deepEqual(state.records, [
+    { id: "dirty", type: "expense", amount: 10, category: "餐饮", date: "2026-11-05" },
+  ]);
+  assert.equal(Object.hasOwn(state.records[0], "smuggled"), false);
+});
+
+test("normalizeLedgerState 不替缺了备注或时间戳的旧记录补值", () => {
+  const legacy = { id: "legacy", type: "expense", amount: 8, category: "交通", date: "2026-11-05" };
+  const state = normalizeLedgerState({ records: [legacy] });
+
+  // 没有 note 这一项本身就是合法形状（界面渲染成「无备注」，关键词筛选也按空串算），
+  // 补一个 "" 等于往用户的旧数据里写字；createdAt 缺着同理，两处必须是同一种处理。
+  assert.deepEqual(state.records, [legacy]);
+  assert.equal(Object.hasOwn(state.records[0], "note"), false);
+  assert.equal(Object.hasOwn(state.records[0], "createdAt"), false);
+});
+
+test("loadState 也不让盘里那份脏备注进状态", () => {
+  reset();
+  // 备份导入这条路是新的，本机存储这条路一直如此：同一个 normaliser，缺的正是这一条。
+  files.set(
+    STORAGE_KEY,
+    '{"records":[{"id":"a","type":"expense","amount":1,"category":"餐饮","date":"2026-11-05","note":{"evil":1}}]}',
+  );
+
+  const { state } = loadState();
+  assert.deepEqual(state.records, [
+    { id: "a", type: "expense", amount: 1, category: "餐饮", date: "2026-11-05" },
+  ]);
+});
+
 test("safeMigratedState trims records and budgets the same way", () => {
   const state = safeMigratedState({
     records: [record({ id: "a", category: " 餐饮 " }), record({ id: "b", category: "  " })],

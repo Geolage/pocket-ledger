@@ -176,6 +176,44 @@ test("parseBackupJson 丢掉校验不过的记录，而不是把它们交给状�
   );
 });
 
+test("parseBackupJson 交出来的记录是界面与导出都吃得下的形状", () => {
+  const state = parseBackupJson(
+    JSON.stringify({
+      records: [
+        record({ id: "note-object", note: { evil: 1 }, smuggled: "跟着落盘的私货" }),
+        record({ id: "bad-stamp", createdAt: "yesterday" }),
+      ],
+    }),
+  );
+
+  assert.ok(state);
+  // 这两笔都还是有效记录，该留着：备注与时间戳写错形状就当没写过，未知的键不带进状态。
+  // 少这一道，账单列表会把对象当 React child 渲染而整页崩掉。
+  assert.deepEqual(state.records, [
+    {
+      id: "note-object",
+      type: "expense",
+      amount: 12.34,
+      category: "餐饮",
+      date: "2026-11-05",
+      createdAt: 1,
+    },
+    {
+      id: "bad-stamp",
+      type: "expense",
+      amount: 12.34,
+      category: "餐饮",
+      date: "2026-11-05",
+      note: "",
+    },
+  ]);
+  // 导出那一侧对备注直接调 .replace（见 csvCell），所以它拿到的只可能是字符串或没有这一项。
+  assert.equal(
+    recordsToCsv(state.records).split("\n")[1],
+    '"note-object","expense",12.34,"餐饮","2026-11-05","",1',
+  );
+});
+
 test("parseBackupJson 归一化可疑的 theme、budgets 与 categories", () => {
   const state = parseBackupJson(
     JSON.stringify({

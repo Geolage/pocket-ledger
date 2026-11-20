@@ -34,7 +34,10 @@ export function BackupActions({ ledger }: Props) {
       stateToBackup(ledger.state),
       "application/json",
     );
-    notifyChange("已导出 JSON 备份");
+    // 导出没写任何东西，也就没资格结束上一步：这句不走 notifyChange 那个唯一带撤销按钮的位置，
+    // 否则点一下「导出 JSON」就把还挂着的那颗「撤销」连按钮一起顶掉，而 undoRef 依然认那一步。
+    // 一句不带 action 的普通提示才诚实：屏幕上那颗按钮说的还是用户真正能撤回去的那一步。
+    toast("已导出 JSON 备份");
   }
 
   function exportCsv() {
@@ -43,7 +46,7 @@ export function BackupActions({ ledger }: Props) {
       recordsToCsv(ledger.records),
       "text/csv",
     );
-    notifyChange(`已导出 ${ledger.records.length} 笔记录`);
+    toast(`已导出 ${ledger.records.length} 笔记录`);
   }
 
   async function chooseFile(file: File | undefined) {
@@ -67,6 +70,8 @@ export function BackupActions({ ledger }: Props) {
     setPending(null);
     const undo = ledger.importState(pending);
     // 导回来的就是当前这本账：那句话不能说成成功，也不该挂一个什么都撤不回来的按钮。
+    // 它和上面两句导出提示的差别是有意的：导入真的换掉了账本，所以它照旧占那个唯一的撤销位，
+    // 上一步（如果还挂着）到此结束；导出什么都没写，没资格去动那个位置。
     notifyChange(
       undo
         ? `已导入 ${pending.records.length} 笔记录`

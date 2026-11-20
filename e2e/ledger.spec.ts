@@ -1808,3 +1808,91 @@ test("带着关键词导入内容相同的备份：重置的是这一屏，不�
   await expect(page.getByText("真的换了账本的那笔")).toBeVisible();
   await expect(readStored()).resolves.not.toBe(poisoned);
 });
+
+test("导入备注写着对象的备份：这一笔按空备注显示，界面不整页崩掉", async ({ page }) => {
+  const stored = () => page.evaluate(() => localStorage.getItem("pocket-ledger.v1"));
+  const record = (note: unknown) => ({
+    id: "hostile-note",
+    type: "expense",
+    amount: 6.5,
+    category: "餐饮",
+    date: todayKey(),
+    note,
+    // 备注坏、时间戳好：这一笔过了 isValidRecord（它压根不看备注），要防的就是备注自己。
+    createdAt: 1,
+    smuggled: "文件里多出来的键",
+  });
+
+  // 反向对照先走同一条记录写着正常备注的那份：账单里读得到那句话，也读不到「无备注」，
+  // 所以下面那句「显示无备注」测的确实是被丢掉的那一项，而不是定位器一直匹配不到东西。
+  await pickBackupFile(page, JSON.stringify({ records: [record("正常备注")], budgets: {} }));
+  await backupRegion(page).getByRole("button", { name: "确认导入" }).click();
+  await expect(page.getByRole("listitem").filter({ hasText: "正常备注" })).toHaveCount(1);
+  await expect(page.getByText("无备注")).toHaveCount(0);
+
+  await pickBackupFile(page, JSON.stringify({ records: [record({ evil: 1 })], budgets: {} }));
+  await backupRegion(page).getByRole("button", { name: "确认导入" }).click();
+
+  // 整页崩掉的现场是组件树被 React 卸载：连最上面那个标题都不会在，下面每一步都无从谈起。
+  await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
+  // 备注只能算「没有写」，走界面本来就有那句「无备注」，不是新加的一种占位。
+  const noteless = page.getByRole("listitem").filter({ hasText: "无备注" });
+  await expect(noteless).toHaveCount(1);
+  await expect(noteless).toContainText("−¥6.50");
+
+  // 界面还活着：记一笔这条路照旧走得通。
+  await addExpense(page, "7.00", "崩掉之后还能记一笔");
+  await expect(page.getByText("崩掉之后还能记一笔")).toBeVisible();
+
+  // 导出也写得出来（csvCell 对备注直接调 .replace），脏备注与多出来的键都不落盘。
+  const csv = await downloadBackup(page, "导出 CSV");
+  const row = csv.text.split("\n").find((line) => line.includes("hostile-note"));
+  expect(row).toBeDefined();
+  expect(row).toContain('"hostile-note","expense",6.5,"餐饮"');
+  await expect(stored()).resolves.not.toContain("evil");
+  await expect(stored()).resolves.not.toContain("smuggled");
+});
+
+test("导出 CSV 不花掉正在计时的撤销，导入照样把它顶掉", async ({ page }) => {
+  await addExpense(page, "31.00", "导出期间还想撤的那笔");
+  await deleteWithConfirm(page, "导出期间还想撤的那笔");
+
+  const csv = await downloadBackup(page, "导出 CSV");
+  expect(csv.filename).toMatch(/^pocket-ledger-records-\d{4}-\d{2}-\d{2}\.csv$/);
+
+  // 导出没写任何数据，也没撤掉任何东西：屏幕上那颗「撤销」还是上一步删除的，而且只有一颗。
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(1);
+
+  // 导出那句话自己收起（它不带按钮），收起后那颗按钮照旧点得动。
+  await expect(page.getByText(/^已导出/)).toHaveCount(0, { timeout: 10_000 });
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByText("导出期间还想撤的那笔")).toBeVisible();
+
+  // 反向对照：真换了账本的那一步（导入）就该接管撤销——它把删除那一步顶掉，只留撤销导入的这颗。
+  await deleteWithConfirm(page, "导出期间还想撤的那笔");
+  await pickBackupFile(
+    page,
+    JSON.stringify({
+      records: [
+        {
+          id: "takes-over-undo",
+          type: "expense",
+          amount: 3,
+          category: "餐饮",
+          date: todayKey(),
+          note: "导进来的那笔",
+          createdAt: 1,
+        },
+      ],
+      budgets: {},
+    }),
+  );
+  await backupRegion(page).getByRole("button", { name: "确认导入" }).click();
+  await expect(page.getByText("导进来的那笔")).toBeVisible();
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(1);
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  // 还回来的是导入之前那一屏：那笔删除并没有被这颗按钮撤回来，它已经不属于这一步了。
+  await expect(page.getByText("导进来的那笔")).toHaveCount(0);
+  await expect(page.getByText("导出期间还想撤的那笔")).toHaveCount(0);
+});
