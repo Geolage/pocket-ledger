@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 import {
   type DeleteCategoryFailure,
   categoryOptions,
@@ -33,7 +32,7 @@ import {
   startOfMonth,
   summarize,
 } from "@/src/lib/ledger";
-import { LEDGER_TOAST_ID } from "@/src/lib/ledger-toast";
+import { dismissUndoToast } from "@/src/lib/ledger-toast";
 import { type ThemeId, applyTheme } from "@/src/lib/themes";
 import {
   type LedgerState,
@@ -156,7 +155,7 @@ export function useLedger() {
   const invalidateUndo = useCallback(() => {
     if (undoRef.current === null) return;
     undoRef.current = null;
-    toast.dismiss(LEDGER_TOAST_ID);
+    dismissUndoToast();
   }, []);
 
   /**

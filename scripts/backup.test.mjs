@@ -7,6 +7,9 @@ import { DEFAULT_THEME } from "../src/lib/themes.ts";
 
 const HEADER = "id,type,amount,category,date,note,createdAt";
 
+/** 写出去的那个字节序标记：源码里它是个看不见的字符，所以只在这一处出现。 */
+const BOM = "\ufeff";
+
 const record = (overrides = {}) => ({
   id: "r1",
   type: "expense",
@@ -22,7 +25,10 @@ const record = (overrides = {}) => ({
  * 读回 recordsToCsv 写出的那种单元格：带引号的字符串里 "" 就是引号本身，换行也只是字符。
  * 要证明的是「一条备注里带换行的记录不会被读成两笔」，那只比字符串说不清，得真把它拆开看。
  */
-function parseCsv(text) {
+function parseCsv(raw) {
+  // 导出写出去的是表格软件认的那份字节：开头一个 BOM、行间 CRLF（见下面的形状测试）。
+  // 这里先把它们还原成「一行一行」，因为下面这台状态机只认 \n。
+  const text = raw.replace(/^\ufeff/, "").replace(/\r\n/g, "\n");
   const rows = [];
   let row = [];
   let cell = "";
@@ -79,12 +85,23 @@ function parseCsv(text) {
 test("recordsToCsv escapes quotes and neutralizes formula cells", () => {
   const csv = recordsToCsv([record({ note: '=SUM(A1),"危险"' })]);
 
-  assert.match(csv, new RegExp(`^${HEADER}\\r?\\n`));
   // 整行钉住：公式前缀在引号里面，备注自己的引号成对翻倍，金额这类数字不加引号。
   assert.equal(
-    csv.split("\n")[1],
+    csv.split(/\r\n/)[1],
     `"r1","expense",12.34,"餐饮","2026-11-05","'=SUM(A1),""危险""",1`,
   );
+});
+
+test("CSV 以 BOM 打头、行间用 CRLF：这份文件的唯一读者是表格软件", () => {
+  // text/csv;charset=utf-8 那层声明只活在 MIME 头里，落到磁盘上的文件谁也不知道它声明过；
+  // 中文 Windows 上的 Excel 于是按 GBK 去猜，餐饮与备注一律变乱码，而 BOM 是它唯一认得的 UTF-8 记号。
+  // 行分隔同理：RFC 4180 把 CRLF 定为行尾，Excel 和 Windows 记事本都按它读，光给一个 LF 能被连成一行。
+  // 整份文件钉住一次，BOM、CRLF 与「末行不补空行」三件事一起说清。
+  assert.equal(
+    recordsToCsv([record()]),
+    BOM + HEADER + "\r\n" + '"r1","expense",12.34,"餐饮","2026-11-05","",1',
+  );
+  assert.equal(recordsToCsv([record()]).split(/\r\n/).length, 2);
 });
 
 test("recordsToCsv 给 = + - @ 开头的单元格加前缀，正常内容原样", () => {
@@ -112,7 +129,9 @@ test("recordsToCsv 里逗号引号换行都关在同一个单元格内", () => {
 });
 
 test("没有记录时 CSV 只有表头，没有空行", () => {
-  assert.equal(recordsToCsv([]), HEADER);
+  // BOM 照旧要有：一份只有表头的文件也是拿去 Excel 里开的；但行尾不补 CRLF，
+  // 否则表头下面多出一行空的，Excel 里看着就像一笔没写内容的账。
+  assert.equal(recordsToCsv([]), BOM + HEADER);
 });
 
 test("没有写入时刻的记录在 CSV 里留一个空数字格，而不是写着 undefined", () => {
@@ -153,6 +172,27 @@ test("stateToBackup writes versioned JSON", () => {
   assert.deepEqual(parsed.categories, []);
   // 导出的文件是给用户存的，压成一行就没法 diff、也没人手改。
   assert.ok(json.includes("\n  "), json);
+  // JSON 不套 BOM：它的读者是解析器，而 JSON.parse 见了 BOM 直接抛——那个记号只有表格软件要。
+  assert.equal(json.startsWith(BOM), false);
+});
+
+test("parseBackupJson 只读自己认得的版本：比当前格式新的文件一律拒掉", () => {
+  // version 这一行存在的唯一理由，就是让以后改了字段形状时能把话说清楚：这份我不认识，别硬读。
+  // 现在的文件写的是 2（见 BACKUP_VERSION），所以任何比它新的号都落在读得懂的范围之外。
+  assert.equal(parseBackupJson(JSON.stringify({ version: 3, records: [record()] })), null);
+  // 手改过的文件常把数字写成字符串：写着 "3" 的文件和写着 3 的是同一句话。
+  assert.equal(parseBackupJson(JSON.stringify({ version: "3", records: [record()] })), null);
+
+  // 反向对照：更老的文件、压根没写版本的文件照样读得懂——归一化这道门本来就是为它们开的。
+  const older = parseBackupJson(JSON.stringify({ version: 1, records: [record()] }));
+  assert.ok(older);
+  assert.deepEqual(
+    older.records.map((item) => item.id),
+    ["r1"],
+  );
+  assert.ok(parseBackupJson(JSON.stringify({ records: [record()] })));
+  // 写成一串读不出数字的东西也不在这道门上拦：能落进状态的字段自有 normalizeLedgerState 把关。
+  assert.ok(parseBackupJson(JSON.stringify({ version: "昨天", records: [record()] })));
 });
 
 test("parseBackupJson accepts valid JSON and rejects malformed payloads", () => {
@@ -236,7 +276,7 @@ test("parseBackupJson 交出来的记录是界面与导出都吃得下的形状"
   ]);
   // 导出那一侧对备注直接调 .replace（见 csvCell），所以它拿到的只可能是字符串或没有这一项。
   assert.equal(
-    recordsToCsv(state.records).split("\n")[1],
+    recordsToCsv(state.records).split(/\r\n/)[1],
     '"note-object","expense",12.34,"餐饮","2026-11-05","",1',
   );
 });

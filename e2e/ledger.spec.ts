@@ -1577,6 +1577,8 @@ test("导出 JSON 与 CSV：文件名带上今天日期，内容就是刚记下�
 
   const json = await downloadBackup(page, "导出 JSON");
   expect(json.filename).toMatch(/^pocket-ledger-backup-\d{4}-\d{2}-\d{2}\.json$/);
+  // JSON 不套 BOM：它的读者是解析器，而 JSON.parse 见了 BOM 直接抛——那份字节要求只属于 CSV。
+  expect(json.text.startsWith("{")).toBe(true);
   const backup = JSON.parse(json.text) as {
     version: number;
     exportedAt: string;
@@ -1589,12 +1591,50 @@ test("导出 JSON 与 CSV：文件名带上今天日期，内容就是刚记下�
 
   const csv = await downloadBackup(page, "导出 CSV");
   expect(csv.filename).toMatch(/^pocket-ledger-records-\d{4}-\d{2}-\d{2}\.csv$/);
-  expect(csv.text).toMatch(/^id,type,amount,category,date,note,createdAt\r?\n/);
-  const row = csv.text.split("\n").find((line) => line.includes("导出用的午餐"));
+  // 字节形状一起钉住：BOM 打头、行间 CRLF——这份文件的唯一读者是表格软件（见 recordsToCsv）。
+  // BOM 在源码里是个看不见的字符，所以断言写成代码点：读的人看得见它在比什么。
+  expect(csv.text.startsWith(String.fromCodePoint(0xfeff))).toBe(true);
+  expect(csv.text.slice(1).split("\r\n")[0]).toBe("id,type,amount,category,date,note,createdAt");
+  const row = csv.text.split(/\r\n/).find((line) => line.includes("导出用的午餐"));
   expect(row).toBeDefined();
   // 字符串单元格带引号、数字不带：这一行是用户拿到表格软件里要直接看的。
   expect(row).toContain('"餐饮"');
   expect(row).toContain(",88.5,");
+});
+
+test("导出的下载交出去之后才收回对象 URL", async ({ page }) => {
+  await addExpense(page, "12.00", "要看住收回时机的一笔");
+  // anchor.click() 只是把下载交给浏览器，同一趟任务里就 URL.revokeObjectURL，
+  // Safari 与 Firefox 真会把这次下载取消掉——而「已导出…」那句已经报出去了，界面说了假话。
+  // Chromium 不复现这个竞争，所以这里只能盯收回的时机本身：revoke 必须落在 click 之后的下一趟任务。
+  await page.evaluate(() => {
+    const trace: string[] = [];
+    (window as unknown as { downloadTrace: string[] }).downloadTrace = trace;
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function (
+      this: HTMLAnchorElement,
+      ...args: Parameters<typeof click>
+    ) {
+      trace.push("click");
+      // 这一句排在 revoke 之前注册：click 交出去之后、任何延后的收回之前，它必然先落地。
+      setTimeout(() => trace.push("next-task"), 0);
+      return click.apply(this, args);
+    };
+    const revoke = URL.revokeObjectURL;
+    URL.revokeObjectURL = (...args: Parameters<typeof revoke>) => {
+      trace.push("revoke");
+      return revoke.apply(URL, args);
+    };
+  });
+
+  for (const button of ["导出 CSV", "导出 JSON"]) {
+    await downloadBackup(page, button);
+  }
+
+  const trace = await page.evaluate(
+    () => (window as unknown as { downloadTrace: string[] }).downloadTrace,
+  );
+  expect(trace).toEqual(["click", "next-task", "revoke", "click", "next-task", "revoke"]);
 });
 
 test("导入 JSON 先给预览，确认后替换账本，撤销还回原来那一屏", async ({ page }) => {
@@ -1846,7 +1886,7 @@ test("导入备注写着对象的备份：这一笔按空备注显示，界面�
 
   // 导出也写得出来（csvCell 对备注直接调 .replace），脏备注与多出来的键都不落盘。
   const csv = await downloadBackup(page, "导出 CSV");
-  const row = csv.text.split("\n").find((line) => line.includes("hostile-note"));
+  const row = csv.text.split(/\r\n/).find((line) => line.includes("hostile-note"));
   expect(row).toBeDefined();
   expect(row).toContain('"hostile-note","expense",6.5,"餐饮"');
   await expect(stored()).resolves.not.toContain("evil");

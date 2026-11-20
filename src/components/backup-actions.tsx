@@ -4,11 +4,11 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TriangleAlertIcon } from "lucide-react";
-import { toast } from "sonner";
 import type { LedgerApi } from "@/src/hooks/use-ledger";
-import { downloadTextFile, parseBackupJson, recordsToCsv, stateToBackup } from "@/src/lib/backup";
+import { parseBackupJson, recordsToCsv, stateToBackup } from "@/src/lib/backup";
+import { downloadTextFile } from "@/src/lib/download";
 import { dateKey } from "@/src/lib/ledger";
-import { LEDGER_TOAST_ID, notifyChange } from "@/src/lib/ledger-toast";
+import { notifyChange, notifyFailure, notifyMessage } from "@/src/lib/ledger-toast";
 import type { LedgerState } from "@/src/lib/storage";
 
 const INVALID_BACKUP_MESSAGE = "备份文件格式无效，请重新导出";
@@ -34,10 +34,8 @@ export function BackupActions({ ledger }: Props) {
       stateToBackup(ledger.state),
       "application/json",
     );
-    // 导出没写任何东西，也就没资格结束上一步：这句不走 notifyChange 那个唯一带撤销按钮的位置，
-    // 否则点一下「导出 JSON」就把还挂着的那颗「撤销」连按钮一起顶掉，而 undoRef 依然认那一步。
-    // 一句不带 action 的普通提示才诚实：屏幕上那颗按钮说的还是用户真正能撤回去的那一步。
-    toast("已导出 JSON 备份");
+    // 导出没写任何东西，也就没资格结束上一步：这句走的是不带撤销位的说明位（见 notifyMessage）。
+    notifyMessage("已导出 JSON 备份");
   }
 
   function exportCsv() {
@@ -46,7 +44,7 @@ export function BackupActions({ ledger }: Props) {
       recordsToCsv(ledger.records),
       "text/csv",
     );
-    toast(`已导出 ${ledger.records.length} 笔记录`);
+    notifyMessage(`已导出 ${ledger.records.length} 笔记录`);
   }
 
   async function chooseFile(file: File | undefined) {
@@ -58,8 +56,8 @@ export function BackupActions({ ledger }: Props) {
       // 文件读不出内容（选完就被移走）与读得出却不是备份，对用户是同一句话：这里不能静默失败。
     }
     if (!parsed) {
-      // 也走那个唯一的提示位：连着试几个读不懂的文件，屏幕上不会堆出一串一模一样的话。
-      toast.error(INVALID_BACKUP_MESSAGE, { id: LEDGER_TOAST_ID });
+      // 读不懂这份文件不是账本出了错：这句只占说明位，不该顺手把还挂着的「撤销」按下去。
+      notifyFailure(INVALID_BACKUP_MESSAGE);
       return;
     }
     setPending(parsed);
