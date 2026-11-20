@@ -512,28 +512,30 @@ export function useLedger() {
    * 恢复演示是整套替换，替换掉东西才留一步撤销。
    * 演示数据每次都重新生成记录 id，所以「换没换」比的是用户看得见的那几项（见 ledgerStatesEqual）；
    * 月份与筛选也在这一步的范围内，停在当月、没筛东西，才算真的没得可换。
+   * 只把这一屏复位的那一次不算「没得可换」，但也不能把 `seeded` 整套写回：三份都是当场新建的对象，
+   * 而 writer 只认引用，会把这一笔当成真改了数据，于是放行降级状态、把盘里同样的内容重写一遍——
+   * 用户只是清了个筛选条件，代价却是丢掉唯一那份原始数据。
    */
   const resetDemo = useCallback((): UndoAction | null => {
     const before = takeSnapshot();
     const seeded = demoState(before.theme);
-    if (
-      ledgerStatesEqual(
-        {
-          records: before.records,
-          budgets: before.budgets,
-          theme: before.theme,
-          categories: before.categories,
-        },
-        seeded,
-      ) &&
-      isDefaultFilters(before.filters) &&
-      isCurrentMonthView(before.view)
-    ) {
+    // 现场比一次落盘的那四份：已经是演示数据就说明这一步动不到任何要落盘的东西。
+    const dataIsAlreadyDemo = ledgerStatesEqual(
+      {
+        records: before.records,
+        budgets: before.budgets,
+        theme: before.theme,
+        categories: before.categories,
+      },
+      seeded,
+    );
+    if (dataIsAlreadyDemo && isDefaultFilters(before.filters) && isCurrentMonthView(before.view)) {
       invalidateUndo();
       return null;
     }
     // 演示数据连分类定义一起回到规范内置项，否则改名、停用的残留会跟着演示账本一起留着。
-    commitSnapshot(seeded);
+    // 数据本来就是这套时跳过整份写回：筛选与月份动的是这一屏，不需要盘里跟着重抄一遍。
+    if (!dataIsAlreadyDemo) commitSnapshot(seeded);
     writeFilters(EMPTY_FILTERS);
     writeView(startOfMonth(new Date()));
     return armUndo(before);
@@ -544,9 +546,12 @@ export function useLedger() {
    * 这一步就在任何 writer 之前返回 null。
    * 月份视图不归清空管（快照里记的就是当下那个月，写回等于没动它），所以它不能进这个判断——
    * 停在过去的月份里点清空，记录与预算照样一笔没少，那仍然是一次什么都没改到的点击。
-   * 判错这一条，代价不止是多一颗点了只会说「已经无法撤销」的按钮：一旦往下走，`[]` 与 `{}` 都是
-   * 新引用，writer 会把这次点击当成真改动，放行降级状态、把盘里唯一那份原始数据盖掉。
-   * 真的清了东西才留一步撤销：它按整套快照还回来，被清空一起抹掉的筛选条件也跟着回到清空之前。
+   * 光靠这个判断还不够：账本已经空着、只筛了一个关键词时，清空确实清掉了东西（那个筛选条件），
+   * 于是往下走，而 `[]` 与 `{}` 都是新引用，writer 会把这一笔当成真改了数据，照样放行降级状态、
+   * 把盘里唯一那份原始数据盖掉。所以两份持久化写入自己让位：没东西可清就原样返回，
+   * 「改动到底成没成」交回给引用比对去认——领域层拒掉的那笔既不落盘，也不该落盘。
+   * 真的清了东西、或者只是清掉了筛选，都留一步撤销：它按整套快照还回来，
+   * 被清空一起抹掉的筛选条件也跟着回到清空之前。
    */
   const wipeAll = useCallback((): UndoAction | null => {
     const before = takeSnapshot();
@@ -558,8 +563,8 @@ export function useLedger() {
       invalidateUndo();
       return null;
     }
-    writeRecords(() => []);
-    writeBudgets(() => ({}));
+    writeRecords((current) => (current.length === 0 ? current : []));
+    writeBudgets((current) => (Object.keys(current).length === 0 ? current : {}));
     writeFilters(EMPTY_FILTERS);
     return armUndo(before);
   }, [takeSnapshot, invalidateUndo, writeRecords, writeBudgets, writeFilters, armUndo]);

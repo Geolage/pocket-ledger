@@ -1313,6 +1313,40 @@ test("空账本停在过去的月份时重复清空，不会放行降级状态�
   await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
 });
 
+test("空账本上只清一个关键词时，清空放行的是筛选，不是盘里那份原始数据", async ({ page }) => {
+  const readStored = () => page.evaluate(() => localStorage.getItem("pocket-ledger.v1"));
+
+  const poisoned = "null";
+  await page.addInitScript((raw) => {
+    localStorage.setItem("pocket-ledger.v1", raw);
+  }, poisoned);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
+  await expect(page.getByText(/还没有记录/).first()).toBeVisible();
+
+  // 这一次「清空动了东西」全靠筛选条件：记录与预算本来就是空的，月份也停在当月。
+  const keyword = page.locator("#filter-keyword");
+  await keyword.fill("房租");
+  await expect(keyword).toHaveValue("房租");
+
+  const warning = page.getByRole("status").filter({ hasText: "安全恢复视图" });
+  await expect(warning).toBeVisible();
+  await expect(readStored()).resolves.toBe(poisoned);
+
+  await wipeFromSettings(page);
+  // 清掉关键词是真的改动，值得留一步撤销；但它一张账单都没删，
+  // 所以既不该落盘，也不该把降级状态放行——那句「系统不会自动覆盖原始数据」说的就是这一笔。
+  await expect(readStored()).resolves.toBe(poisoned);
+  await expect(warning).toBeVisible();
+  await expect(keyword).toHaveValue("");
+
+  // 撤销按整套快照还回来，被清空一起抹掉的筛选条件也得跟着回来，而且同样不该落盘。
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(keyword).toHaveValue("房租");
+  await expect(readStored()).resolves.toBe(poisoned);
+  await expect(warning).toBeVisible();
+});
+
 test("账本已经是演示数据时，恢复演示不给撤销按钮", async ({ page }) => {
   // 首次进来加载的就是同一套演示数据：连着按两次「恢复演示」，第二次一个字都不该改。
   await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
@@ -1325,4 +1359,46 @@ test("账本已经是演示数据时，恢复演示不给撤销按钮", async ({
   await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
   await expect(page.getByText(/显示 \d+ \/ \d+ 笔/)).toBeVisible();
   await expect(page.getByText(/显示 0 \/ 0 笔/)).toHaveCount(0);
+});
+
+test("账本已经是演示数据时，带着关键词恢复演示只重置筛选，不多落一笔盘", async ({ page }) => {
+  await armStorageWriteCounter(page);
+
+  // 筛选不落盘，所以下面读到的基线就是「恢复演示」这一笔点击独有的开销。
+  const keyword = page.locator("#filter-keyword");
+  await keyword.fill("房租");
+  await expect(keyword).toHaveValue("房租");
+  const writesBefore = await readStorageWrites(page);
+
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: "恢复演示数据" }).click();
+  await page
+    .getByRole("dialog", { name: "恢复演示数据？" })
+    .getByRole("button", { name: "恢复演示" })
+    .click();
+
+  // 盘里的内容本来就是这套演示数据：重写一遍同样的字节也是多落一笔盘，
+  // 而降级状态下这一笔盖掉的正是唯一那份原始数据——界面上却什么都看不出来，只能从写入这一侧取证。
+  await expect(keyword).toHaveValue("");
+  await expect(page.getByText(/显示 \d+ \/ \d+ 笔/)).toBeVisible();
+  await expect(page.getByText(/显示 0 \/ 0 笔/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();
+
+  // 断言「没有多出一次落盘」要等 React 把那一次提交走完，否则读得早点晚点都一样。
+  await page.waitForTimeout(250);
+  expect(await readStorageWrites(page)).toBe(writesBefore);
+
+  // 这一步筛条件确实归了这一步的撤销，而还原同样不该顺手落盘。
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(keyword).toHaveValue("房租");
+  await page.waitForTimeout(250);
+  expect(await readStorageWrites(page)).toBe(writesBefore);
+
+  // 反向对照：紧接着的一次真改动确实会被这个计数器看见，说明上面那两句「一次都没多」不是空断言。
+  // 撤销把关键词带了回来，所以先清掉筛选这笔才看得见——筛选不落盘，这一步依旧是免费的。
+  await keyword.fill("");
+  await expect(keyword).toHaveValue("");
+  await addExpense(page, "12.00", "恢复演示之后的对照支出");
+  await expect(page.getByText("恢复演示之后的对照支出")).toBeVisible();
+  await expect.poll(() => readStorageWrites(page)).toBeGreaterThan(writesBefore);
 });
