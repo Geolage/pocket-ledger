@@ -22,6 +22,7 @@ import { CircleAlertIcon } from "lucide-react";
 import {
   type CategoryDefinition,
   type LedgerRecord,
+  type RecordDraft,
   type RecordType,
   categoriesFor,
   cents,
@@ -29,7 +30,6 @@ import {
   fromCents,
   parseDate,
 } from "@/src/lib/ledger";
-import type { RecordDraft } from "@/src/hooks/use-ledger";
 
 interface Props {
   open: boolean;

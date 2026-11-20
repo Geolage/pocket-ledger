@@ -1193,6 +1193,82 @@ test("取消预算后保存新预算：撤销窗口跟着这次改动一起结�
   await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
 });
 
+test("原样重存同一个预算不算一次改动：撤销窗口留着，撤销照样管用", async ({ page }) => {
+  const budget = page.locator("#budget");
+  const amount = budget.getByLabel("每月预算（元）");
+  const save = budget.getByRole("button", { name: "保存预算" });
+
+  // 先让「餐饮 = ¥100」真的落到盘里：下面那次重存才谈得上「和现在一模一样」。
+  await amount.fill("100");
+  await save.click();
+
+  await addExpense(page, "18.00", "重存预算前删掉的那笔");
+  await deleteWithConfirm(page, "重存预算前删掉的那笔");
+
+  await armStorageWriteCounter(page);
+  const writesBeforeNoop = await readStorageWrites(page);
+
+  await amount.fill("100");
+  await save.click();
+
+  // 同一个分类、同一个数额：领域层判它没改，updater 便交回当前引用，writer 也不作真。
+  // 于是这一笔既不落盘（降级状态下多落的这一笔，盖掉的正是盘里唯一那份原始数据），
+  // 也不关掉上一步的撤销——那颗按钮此刻还好好在屏幕上，没人有权悄悄收走它。
+  await page.waitForTimeout(250);
+  expect(await readStorageWrites(page)).toBe(writesBeforeNoop);
+  await expect(page.getByText("已删除 1 笔记录")).toBeVisible();
+  await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByText("重存预算前删掉的那笔")).toBeVisible();
+
+  // 反向对照：同一颗按钮，换个数额就是一次真改动——落盘计数器跟着动，撤销窗口跟着结束。
+  // 没有这一段，上面那句「一次都没多落」可能只是根本没在记数。
+  await addExpense(page, "19.00", "改预算前删掉的那笔");
+  await deleteWithConfirm(page, "改预算前删掉的那笔");
+  await amount.fill("120");
+  await save.click();
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+  await expect.poll(() => readStorageWrites(page)).toBeGreaterThan(writesBeforeNoop);
+});
+
+test("编辑这笔却一个字没改，不算一次改动：撤销窗口留着，撤销照样管用", async ({ page }) => {
+  await addExpense(page, "24.00", "留着待重存的这笔");
+  await addExpense(page, "31.00", "重存编辑前删掉的那笔");
+  await deleteWithConfirm(page, "重存编辑前删掉的那笔");
+
+  await armStorageWriteCounter(page);
+  const writesBeforeNoop = await readStorageWrites(page);
+
+  const editorRow = page.getByRole("listitem").filter({ hasText: "留着待重存的这笔" });
+  await editorRow.getByRole("button", { name: /^编辑/ }).click();
+  const editor = page.getByRole("dialog", { name: "编辑这笔" });
+  await editor.getByRole("button", { name: "保存" }).click();
+  await expect(editor).toBeHidden();
+
+  // 原样存回去既写不到记录，也不该把月份挪一挪：两者都是「改动」，都会关掉上一步的撤销。
+  // 更重要的是这句「已更新这笔记录」不能出口——提示是同 id 按字段合并的，
+  // 一笔没发生的改动换成一句假的成功说明，代价是用户眼睁睁错过的这颗撤销按钮。
+  await page.waitForTimeout(250);
+  expect(await readStorageWrites(page)).toBe(writesBeforeNoop);
+  await expect(page.getByText("已更新这笔记录")).toHaveCount(0);
+  await expect(page.getByText("已删除 1 笔记录")).toBeVisible();
+  await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByText("重存编辑前删掉的那笔")).toBeVisible();
+
+  // 反向对照：同一个对话框，真的改一个数字就是一次真改动，撤销窗口跟着这次改动一起结束。
+  await deleteWithConfirm(page, "重存编辑前删掉的那笔");
+  await editorRow.getByRole("button", { name: /^编辑/ }).click();
+  await editor.getByLabel(/金额/).fill("45.00");
+  await editor.getByRole("button", { name: "保存" }).click();
+  await expect(editor).toBeHidden();
+  await expect(editorRow).toContainText("−¥45.00");
+  await expect(page.getByText("已更新这笔记录")).toBeVisible();
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+});
+
 test("被领域层挡下的停用同样结束撤销窗口", async ({ page }) => {
   await page.evaluate(() => {
     interface StoredCategory {

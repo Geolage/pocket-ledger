@@ -24,6 +24,19 @@ export interface LedgerRecord {
 export type Budgets = Record<string, number>;
 
 /**
+ * 记一笔 / 编辑这笔的表单交给领域层的那五项：用户在对话框里能改的就这些。
+ * 金额还是用户输入的元、分类名也可能带空格，所以写回记录前要统一按分与去空格归一化，
+ * 这份归一化连着「这次保存到底改了什么」的判定一起放在这里，见 applyRecordDraftById。
+ */
+export interface RecordDraft {
+  type: RecordType;
+  amount: number;
+  category: string;
+  date: string;
+  note: string;
+}
+
+/**
  * 下面三份常量是记录、预算与图表取值的共同键，全模块共享。
  * 冻结之后谁都改不动：项目是 ESM（严格模式），原地赋值直接抛 TypeError。
  */
@@ -192,6 +205,57 @@ export function recordsOfMonth(
 export function removeRecordById(records: LedgerRecord[], id: string): LedgerRecord[] | null {
   const next = records.filter((record) => record.id !== id);
   return next.length === records.length ? null : next;
+}
+
+/**
+ * 把草稿套到那个 id 上：用户看得见的五项（类型、按分算的金额、去空格的分类、日期、备注）
+ * 全和现在一样就返回 null。id 不在列表里也算「什么都没改」——一次碰不到任何记录的保存没资格改动账本。
+ * 和 removeRecordById 一样，「改没改」必须由领域层说清楚：`map` 每次都造新数组和新对象，
+ * 光比引用分不出「改了一笔」和「原样存回去」，而调用方要靠这个区别决定落不落盘、
+ * 放不放行降级状态、留不留得上一步的撤销。比较按分、按归一化之后的分类名做，
+ * 判的正是「写进去的值和已有的值是不是同一个数、同一个名字」。
+ */
+export function applyRecordDraftById(
+  records: LedgerRecord[],
+  id: string,
+  draft: RecordDraft,
+): LedgerRecord[] | null {
+  const category = draft.category.trim();
+  const amount = fromCents(cents(draft.amount));
+  const changed = records.some(
+    (record) =>
+      record.id === id &&
+      (record.type !== draft.type ||
+        cents(record.amount) !== cents(amount) ||
+        record.category !== category ||
+        record.date !== draft.date ||
+        // 备注在旧数据里可能压根没有这一项，界面上渲染的就是空串，所以按空串比。
+        (record.note ?? "") !== draft.note),
+  );
+  if (!changed) return null;
+  // 只覆盖用户看得见的那五项：createdAt 是排序依据，编辑不该把它推到最新。
+  return records.map((record) =>
+    record.id === id ? { ...record, ...draft, amount, category } : record,
+  );
+}
+
+/**
+ * 给某个分类定下每月预算：那个名字已经存着一模一样的数额就返回 null。
+ * 判定要连归一化一起做（分类名去空格、金额按分），否则「要写的值」和「比过的值」
+ * 不是同一个口径。`{ ...current }` 每次都换新引用，writeBudgets 只认引用，于是原样保存
+ * 也会落盘、放行降级状态、关掉上一步的撤销——一笔没改动的点击不该有这些代价。
+ */
+export function setBudgetAmount(
+  budgets: Budgets,
+  category: string,
+  amount: number,
+): Budgets | null {
+  const name = category.trim();
+  const value = cents(amount);
+  // 有键才算「本来就是这个数」：还没有这条预算时，即便要写 0 也是一次真改动。
+  // 读不出数的历史脏值（NaN、字符串）比不中，照样重写一遍归一化后的值。
+  if (Object.hasOwn(budgets, name) && cents(budgets[name]) === value) return null;
+  return { ...budgets, [name]: fromCents(value) };
 }
 
 export interface Summary {

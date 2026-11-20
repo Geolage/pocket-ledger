@@ -17,6 +17,18 @@ function record(overrides = {}) {
   };
 }
 
+/** 与 record() 同默认值的表单草稿：两个都不给 overrides 时就是一次「原样存回去」。 */
+function draft(overrides = {}) {
+  return {
+    type: "expense",
+    amount: 10,
+    category: "餐饮",
+    date: "2026-11-05",
+    note: "",
+    ...overrides,
+  };
+}
+
 test("money and cents use two-decimal rounding without float drift", () => {
   assert.equal(ledger.cents(0.1 + 0.2), 30);
   assert.equal(ledger.fromCents(3050), 30.5);
@@ -286,6 +298,113 @@ test("removeRecordById 只去掉命中的那一笔，不动传进去的列表", 
     ["b"],
   );
   assert.equal(records.length, 2);
+});
+
+test("applyRecordDraftById 原样存回去时返回 null，而不是内容相同的新列表", () => {
+  const records = [record({ id: "a" }), record({ id: "b" })];
+
+  // map 每次都造新数组和新对象，光比引用分不出「改了一笔」和「一个字没改的保存」。
+  // 落不落盘、放行不放行降级状态、上一步撤销留不留全看这个区别，所以判定得留在领域层。
+  assert.equal(ledger.applyRecordDraftById(records, "a", draft()), null);
+  // 金额按分比：浮点噪声与表单的两位小数归一化都不该被当成改动。
+  assert.equal(
+    ledger.applyRecordDraftById(
+      [record({ id: "a", amount: 0.3 })],
+      "a",
+      draft({ amount: 0.1 + 0.2 }),
+    ),
+    null,
+  );
+  // 分类名先去空格再比：输入框里手打的空格不算改名。
+  assert.equal(
+    ledger.applyRecordDraftById(
+      [record({ id: "a", category: "餐饮" })],
+      "a",
+      draft({ category: " 餐饮 " }),
+    ),
+    null,
+  );
+  // 旧数据里没有备注这一项时界面渲染的就是空串，所以这句「没改动」照旧成立。
+  assert.equal(
+    ledger.applyRecordDraftById(
+      [
+        {
+          id: "a",
+          type: "expense",
+          amount: 10,
+          category: "餐饮",
+          date: "2026-11-05",
+          createdAt: 1,
+        },
+      ],
+      "a",
+      draft(),
+    ),
+    null,
+  );
+  // id 不在列表里同样一笔都没改到：一次碰不到任何记录的保存没资格改动账本。
+  assert.equal(ledger.applyRecordDraftById(records, "missing", draft({ amount: 99 })), null);
+  assert.equal(ledger.applyRecordDraftById([], "a", draft()), null);
+  assert.equal(records.length, 2);
+});
+
+test("applyRecordDraftById 改到内容才给新列表，并保住 createdAt 与其余每一笔", () => {
+  const records = [record({ id: "a", note: "午餐" }), record({ id: "b" })];
+  const next = ledger.applyRecordDraftById(
+    records,
+    "a",
+    draft({ amount: 42.5, category: " 交通 ", note: "晚餐" }),
+  );
+
+  assert.ok(next);
+  assert.notEqual(next, records);
+  assert.deepEqual(next[0], {
+    id: "a",
+    type: "expense",
+    amount: 42.5,
+    category: "交通",
+    date: "2026-11-05",
+    note: "晚餐",
+    // createdAt 是同日排序的依据，编辑一笔不该把它推到最新。
+    createdAt: 1,
+  });
+  // 没命中的那笔连引用都没换，React 因此不会为它重渲染。
+  assert.equal(next[1], records[1]);
+  // 传进去的列表不被原地修改。
+  assert.equal(records[0].note, "午餐");
+
+  // 类型、日期也是用户看得见的一项，换掉它们就算一次改动。
+  assert.ok(ledger.applyRecordDraftById([record({ id: "a" })], "a", draft({ type: "income" })));
+  assert.ok(ledger.applyRecordDraftById([record({ id: "a" })], "a", draft({ date: "2026-11-06" })));
+});
+
+test("setBudgetAmount 预算没变时返回 null，而不是内容相同的新对象", () => {
+  const budgets = { 餐饮: 100, 交通: 50 };
+
+  // 预算表每次都造新对象，而 writer 只认引用：原样保存也算「改过了」，
+  // 于是白落一笔盘、放行降级状态、关掉撤销窗口——判定的口径要和写入口径一致。
+  assert.equal(ledger.setBudgetAmount(budgets, "餐饮", 100), null);
+  assert.equal(ledger.setBudgetAmount(budgets, " 餐饮 ", 100), null);
+  assert.equal(ledger.setBudgetAmount({ 餐饮: 0.3 }, "餐饮", 0.1 + 0.2), null);
+  // 0 本来就写在那里，原样保存同样没改任何东西。
+  assert.equal(ledger.setBudgetAmount({ 餐饮: 0 }, "餐饮", 0), null);
+  assert.deepEqual(budgets, { 餐饮: 100, 交通: 50 });
+});
+
+test("setBudgetAmount 写出归一化后的预算，其余键原样保留", () => {
+  const budgets = { 餐饮: 100, 交通: 50 };
+  const next = ledger.setBudgetAmount(budgets, " 购物 ", 10.111);
+
+  assert.ok(next);
+  assert.notEqual(next, budgets);
+  assert.deepEqual(next, { 餐饮: 100, 交通: 50, 购物: 10.11 });
+  // 传进去的对象不被原地修改。
+  assert.equal(Object.keys(budgets).length, 2);
+
+  // 还没有这条预算时，即便要写 0 也是一次真改动：表里从此多了这个键。
+  assert.deepEqual(ledger.setBudgetAmount({}, "餐饮", 0), { 餐饮: 0 });
+  // 盘里读回来的脏值按分比不出数，就照改动重写一遍归一化后的值。
+  assert.deepEqual(ledger.setBudgetAmount({ 餐饮: Number.NaN }, "餐饮", 100), { 餐饮: 100 });
 });
 
 test("isValidRecord rejects incomplete or impossible records", () => {

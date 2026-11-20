@@ -13,17 +13,21 @@ import {
   type CategoryColorIndex,
   type CategoryDefinition,
   type LedgerRecord,
+  type RecordDraft,
   type RecordType,
+  applyRecordDraftById,
   budgetSummary,
   categoryColorIndex,
   cents,
   dailyExpenses,
   expensesByCategory,
   fromCents,
+  isSameMonth,
   isValidRecord,
   newId,
   recordsOfMonth,
   removeRecordById,
+  setBudgetAmount,
   shiftMonth,
   startOfMonth,
   summarize,
@@ -36,14 +40,6 @@ import {
   loadState,
   saveState,
 } from "@/src/lib/storage";
-
-export interface RecordDraft {
-  type: RecordType;
-  amount: number;
-  category: string;
-  date: string;
-  note: string;
-}
 
 export interface Filters {
   type: "all" | RecordType;
@@ -60,8 +56,14 @@ interface LedgerSnapshot {
 
 /**
  * 撤销一步要还原的东西，比落盘的那三份多：筛选条件与正在看的月份同样是用户看得见的位置。
- * 删除分类会把筛选打回「全部分类」，恢复演示会把月份跳回本月、筛选清空——只还原数据就等于
- * 悄悄换掉用户正在看的这一屏，所以快照把六份状态一起记下来。
+ * 「清空所有数据」会把筛选一起清掉，「恢复演示」会把月份跳回本月、筛选清空——这两步是真的走了
+ * 筛选与月份这两个 writer，只还原数据就等于悄悄换掉用户按下按钮时正在看的那一屏。
+ * （删除、改名分类时界面上也会看到筛选回到「全部分类」，但那不是撤销还回来的：那一步从没碰过筛选
+ * writer，是 activeFilters 那份投影发现筛的条件已经不在候选项里。）
+ * 主题这一维现在只有导入备份写得出不一样的值（导入是本计划下一步的 importState，负载里带着主题）：
+ * 界面里换主题会把上一步撤销当场作废，所以「改完主题再撤销」今天既走不到也测不出。仍然留着它，
+ * 是因为撤销在这里的定义就是「按下按钮那一刻的整套状态原样还回来」——少还一份落盘状态，
+ * 等导入落地就是个悄悄生效的 bug。
  */
 interface UndoSnapshot extends LedgerSnapshot {
   theme: ThemeId;
@@ -107,6 +109,8 @@ function runUndo(undo: UndoAction, event?: { preventDefault(): void }): void {
     toast.dismiss(LEDGER_TOAST_ID);
     return;
   }
+  // 走到这条过期分支只剩一种点得到的方式：提示正在播收起动画的那一小段，按钮还看得见，
+  // 但那一步已经被后续改动接管了。为了这一瞬间也留着它——宁可说清失败，也别让按钮静默无效。
   // preventDefault 是与 sonner 的约定：按钮默认会在回调结束后收起提示，
   // 这里要的恰恰是把这条失败说明留在屏幕上。
   event?.preventDefault();
@@ -441,21 +445,23 @@ export function useLedger() {
     [writeRecords, writeView],
   );
 
+  /**
+   * 编辑这笔：改到了内容返回 true，一个字都没改返回 false，界面据此决定要不要换掉那条提示。
+   * 提示是同 id 按字段合并的，所以「已更新这笔记录」哪怕说的是一笔没发生的改动，
+   * 也会把还挂着的「撤销」连按钮一起顶掉——一句假的成功说明比静默更糟。
+   * 月份照旧跳到这笔日期所在的那个月：同一个月份换一个等新 Date 对象还是同一屏，
+   * 而 writeView 认的是引用，所以同月时把当前引用原样交回去，撤销窗口才不会被一次空保存收掉。
+   */
   const updateRecord = useCallback(
-    (id: string, draft: RecordDraft) => {
-      writeRecords((current) =>
-        current.map((record) =>
-          record.id === id
-            ? {
-                ...record,
-                ...draft,
-                amount: fromCents(cents(draft.amount)),
-                category: draft.category.trim(),
-              }
-            : record,
-        ),
+    (id: string, draft: RecordDraft): boolean => {
+      const before = recordsRef.current;
+      // 改没改成由领域层判定（见 applyRecordDraftById），没改成就交回当前引用，writer 便不作真。
+      const after = writeRecords((current) => applyRecordDraftById(current, id, draft) ?? current);
+      const month = startOfMonth(new Date(`${draft.date}T00:00:00`));
+      writeView((current) =>
+        isSameMonth(current, month.getFullYear(), month.getMonth()) ? current : month,
       );
-      writeView(startOfMonth(new Date(`${draft.date}T00:00:00`)));
+      return after !== before;
     },
     [writeRecords, writeView],
   );
@@ -480,10 +486,14 @@ export function useLedger() {
     [takeSnapshot, invalidateUndo, writeRecords, armUndo],
   );
 
+  /**
+   * 设预算：分类名去空格、金额按分归一化，连「改没改」都由领域层一次判完（见 setBudgetAmount）。
+   * 原样保存时 updater 交回当前引用，于是这一笔点击既不落盘、也不放行降级状态，
+   * 更不会把还活着的撤销窗口关掉——保存预算不弹提示，那颗按钮此时还好好在屏幕上。
+   */
   const setBudget = useCallback(
     (category: string, amount: number) => {
-      const name = category.trim();
-      writeBudgets((current) => ({ ...current, [name]: fromCents(cents(amount)) }));
+      writeBudgets((current) => setBudgetAmount(current, category, amount) ?? current);
     },
     [writeBudgets],
   );

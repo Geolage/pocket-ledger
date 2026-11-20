@@ -13,13 +13,8 @@ import { RecordDialog } from "@/src/components/record-dialog";
 import { SettingsSection } from "@/src/components/settings-section";
 import { SummaryCards } from "@/src/components/summary-cards";
 import { useActiveSection } from "@/src/hooks/use-active-section";
-import {
-  notifyChange,
-  UNDO_WINDOW_SECONDS,
-  useLedger,
-  type RecordDraft,
-} from "@/src/hooks/use-ledger";
-import { describeRecord, type LedgerRecord, monthLabel } from "@/src/lib/ledger";
+import { notifyChange, UNDO_WINDOW_SECONDS, useLedger } from "@/src/hooks/use-ledger";
+import { type LedgerRecord, type RecordDraft, describeRecord, monthLabel } from "@/src/lib/ledger";
 
 /**
  * 撤销窗口只在提示还看得见的那段时间里成立，而且下一次改动就会把它结束掉。
@@ -41,8 +36,9 @@ export default function App() {
   function saveRecord(draft: RecordDraft) {
     const editing = recordDialog.record;
     if (editing) {
-      ledger.updateRecord(editing.id, draft);
-      notifyChange("已更新这笔记录");
+      // 一个字没改的保存不算一次改动，也就不说「已更新」：提示是同 id 按字段合并的，
+      // 这句假的成功说明会把还挂着的「撤销」连按钮一起顶掉。
+      if (ledger.updateRecord(editing.id, draft)) notifyChange("已更新这笔记录");
     } else {
       ledger.addRecord(draft);
       notifyChange(draft.type === "income" ? "已记一笔收入" : "已记一笔支出");
