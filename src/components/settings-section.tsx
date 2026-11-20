@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { TriangleAlertIcon } from "lucide-react";
+import { BackupActions } from "@/src/components/backup-actions";
 import { CategoryManager } from "@/src/components/category-manager";
 import { THEMES, type ThemeId } from "@/src/lib/themes";
 import { storedBytes } from "@/src/lib/storage";
@@ -123,6 +124,10 @@ export function SettingsSection({ ledger, onResetDemo, onWipe }: Props) {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="mt-3">
+        <BackupActions ledger={ledger} />
       </div>
 
       <div className="mt-3">

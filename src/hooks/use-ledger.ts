@@ -62,10 +62,10 @@ interface LedgerSnapshot {
  * 用户按下按钮时正在看的那一屏。
  * （删除、改名分类时界面上也会看到筛选回到「全部分类」，但那不是撤销还回来的：那一步从没碰过筛选
  * writer，是 activeFilters 那份投影发现筛的条件已经不在候选项里。）
- * 主题这一维现在只有导入备份写得出不一样的值（导入是本计划下一步的 importState，负载里带着主题）：
- * 界面里换主题会把上一步撤销当场作废，所以「改完主题再撤销」今天既走不到也测不出。仍然留着它，
+ * 主题这一维只有导入备份写得出「和当前不一样、又不作废上一步」的值（见 importState，它的负载里带着主题）：
+ * 界面里换主题会把上一步撤销当场作废，所以「改完主题再撤销」走不到。仍然留着它，
  * 是因为撤销在这里的定义就是「按下按钮那一刻的整套状态原样还回来」——少还一份落盘状态，
- * 等导入落地就是个悄悄生效的 bug。
+ * 到了导入这一步就是悄悄生效的 bug。
  */
 interface UndoSnapshot extends LedgerSnapshot {
   theme: ThemeId;
@@ -258,7 +258,12 @@ export function useLedger() {
     [writeRecords, writeBudgets, writeCategories],
   );
 
-  /** 当场从六份 ref 读出一份快照：记的是最新意图，而不是某个旧闭包里的副本。 */
+  /**
+   * 当场从六份 ref 读出一份快照：记的是最新意图，而不是某个旧闭包里的副本。
+   * 存的是引用而不是拷贝，所以每个 writer 都必须 copy-on-write：就地改动已经记下的那份数组或对象，
+   * 等于把用户要撤回去的状态一起改掉。导入把外部文件解析出来的新对象写成下一份状态，
+   * 这条前提才第一次要紧起来。
+   */
   const takeSnapshot = useCallback(
     (): UndoSnapshot => ({
       records: recordsRef.current,
@@ -533,6 +538,44 @@ export function useLedger() {
   }, [takeSnapshot, invalidateUndo, writeRecords, writeBudgets, writeFilters, armUndo]);
 
   /**
+   * 导入是整份替换：文件里那四份状态就是账本以后的样子，不合并、不挑选，界面也不给「只导某个月」。
+   * 「换了没有」照恢复演示的判法先比一次内容（见 resetDemo）：解析出来的对象每次都是新建的，
+   * 内容相同也照样换了新引用，writer 就会把一次空导入当成真改动——多落一笔盘、放行降级状态、
+   * 再留一个什么都撤不回来的按钮。所以内容没换时那三份根本不再写回，盘里的字节一个都不动。
+   * 筛选与月份是这一屏的位置：导入把这一屏跳回「本月、没筛」，那一步也记在同一份快照里，
+   * 撤掉导入时连用户按下确认时正在看的那一屏一起还回来。
+   */
+  const importState = useCallback(
+    (next: LedgerState): UndoAction | null => {
+      const before = takeSnapshot();
+      const dataIsAlreadyThere = ledgerStatesEqual(
+        {
+          records: before.records,
+          budgets: before.budgets,
+          theme: before.theme,
+          categories: before.categories,
+        },
+        next,
+      );
+      if (
+        dataIsAlreadyThere &&
+        isDefaultFilters(before.filters) &&
+        isCurrentMonthView(before.view)
+      ) {
+        invalidateUndo();
+        return null;
+      }
+      // writeTheme 自己认得「主题没换」（见它的第一行），要拦的只有那三份数据的空写回。
+      if (!dataIsAlreadyThere) commitSnapshot(next);
+      writeTheme(next.theme);
+      writeFilters(EMPTY_FILTERS);
+      writeView(startOfMonth(new Date()));
+      return armUndo(before);
+    },
+    [takeSnapshot, invalidateUndo, commitSnapshot, writeTheme, writeFilters, writeView, armUndo],
+  );
+
+  /**
    * 新增成功返回撤销动作，被领域层拒掉返回 null：界面据此决定要不要挂上「撤销」按钮。
    * 被拒掉的那次点击同样动了用户的界面（哪怕什么都没写成），上一步的撤销窗口就此结束——
    * 撤销只认「最近那次改动」，中间隔了一次操作就不该再假装还认。
@@ -614,6 +657,9 @@ export function useLedger() {
     budgets,
     theme,
     categories,
+    // 备份要的正是落盘的那一整份状态：给它一个成型对象，导出这一侧就不必自己拼字段，
+    // 也不必把上面四个名字各传一次、再指望哪天漏掉一维。
+    state: { records, budgets, theme, categories },
     view,
     year,
     month,
@@ -652,6 +698,7 @@ export function useLedger() {
     setTheme: writeTheme,
     resetDemo,
     wipeAll,
+    importState,
     recordById: (id: string) => records.find((record) => isValidRecord(record) && record.id === id),
   };
 }

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 
 async function addExpense(page: Page, amount: string, note: string) {
@@ -41,6 +42,44 @@ async function wipeFromSettings(page: Page) {
     .getByRole("dialog", { name: "清空所有数据？" })
     .getByRole("button", { name: "清空" })
     .click();
+}
+
+const backupRegion = (page: Page) => page.getByRole("region", { name: "备份与恢复" });
+
+/**
+ * 导入会把月份视图跳回当月，所以测试里的记录要落在今天，导完才在屏幕上看得见。
+ * 写死一个日期就是给自己埋一颗跨年就会炸的雷。
+ */
+function todayKey(): string {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/** 点「导入 JSON」，把内存里这份内容当成用户选中的文件交出去。 */
+async function pickBackupFile(page: Page, content: string) {
+  await page.getByRole("heading", { name: "设置" }).scrollIntoViewIfNeeded();
+  const chooserPromise = page.waitForEvent("filechooser");
+  await backupRegion(page).getByRole("button", { name: "导入 JSON" }).click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles({
+    name: "backup.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(content),
+  });
+}
+
+/**
+ * 点一个导出按钮，并把 Playwright 存下来的那份下载读成文本。
+ * 只断言建议文件名等于什么都没测：文件得真被写出来，内容才算数。
+ */
+async function downloadBackup(page: Page, buttonName: string) {
+  const downloadPromise = page.waitForEvent("download");
+  await backupRegion(page).getByRole("button", { name: buttonName }).click();
+  const download = await downloadPromise;
+  const path = await download.path();
+  if (path === null) throw new Error(`${buttonName} 没有真的写出文件`);
+  return { filename: download.suggestedFilename(), text: readFileSync(path, "utf8") };
 }
 
 test.beforeEach(async ({ page }) => {
@@ -813,7 +852,7 @@ test("停用或删除别的分类不会弄丢正在编辑的改名草稿", async
   await expect(manager.getByText("猫粮", { exact: true })).toBeVisible();
 });
 
-test("降级视图如实说明安全恢复，不承诺没上线的导出备份", async ({ page }) => {
+test("降级视图只如实说明安全恢复，不在这句提示里改口承诺别的恢复路径", async ({ page }) => {
   await page.addInitScript(() => {
     // 解析得了、迁移走不完的状态：这才是真正会触发 degraded 的输入。
     localStorage.setItem("pocket-ledger.v1", "null");
@@ -1531,4 +1570,241 @@ test("账本已经是演示数据时，带着关键词恢复演示只重置筛�
   await addExpense(page, "12.00", "恢复演示之后的对照支出");
   await expect(page.getByText("恢复演示之后的对照支出")).toBeVisible();
   await expect.poll(() => readStorageWrites(page)).toBeGreaterThan(writesBefore);
+});
+
+test("导出 JSON 与 CSV：文件名带上今天日期，内容就是刚记下的那一笔", async ({ page }) => {
+  await addExpense(page, "88.50", "导出用的午餐");
+
+  const json = await downloadBackup(page, "导出 JSON");
+  expect(json.filename).toMatch(/^pocket-ledger-backup-\d{4}-\d{2}-\d{2}\.json$/);
+  const backup = JSON.parse(json.text) as {
+    version: number;
+    exportedAt: string;
+    records: Array<{ note?: string; amount: number }>;
+  };
+  expect(backup.version).toBe(2);
+  expect(Number.isNaN(Date.parse(backup.exportedAt))).toBe(false);
+  expect(backup.records.find((record) => record.note === "导出用的午餐")?.amount).toBe(88.5);
+  await expect(page.getByText("已导出 JSON 备份")).toBeVisible();
+
+  const csv = await downloadBackup(page, "导出 CSV");
+  expect(csv.filename).toMatch(/^pocket-ledger-records-\d{4}-\d{2}-\d{2}\.csv$/);
+  expect(csv.text).toMatch(/^id,type,amount,category,date,note,createdAt\r?\n/);
+  const row = csv.text.split("\n").find((line) => line.includes("导出用的午餐"));
+  expect(row).toBeDefined();
+  // 字符串单元格带引号、数字不带：这一行是用户拿到表格软件里要直接看的。
+  expect(row).toContain('"餐饮"');
+  expect(row).toContain(",88.5,");
+});
+
+test("导入 JSON 先给预览，确认后替换账本，撤销还回原来那一屏", async ({ page }) => {
+  await addExpense(page, "12.00", "导入前的那笔");
+  await pickBackupFile(
+    page,
+    JSON.stringify({
+      version: 2,
+      records: [
+        {
+          id: "imported-1",
+          type: "expense",
+          amount: 18.88,
+          category: "餐饮",
+          date: todayKey(),
+          note: "导入测试晚餐",
+          createdAt: 1,
+        },
+      ],
+      budgets: { 餐饮: 200 },
+      theme: "mist",
+      categories: [],
+    }),
+  );
+
+  const preview = backupRegion(page).getByRole("alert");
+  await expect(preview).toContainText("将导入 1 笔记录、1 个预算");
+  // 正常账本没有「保留下来的读不出来的原始数据」，那句话就不能出现在这里。
+  await expect(preview).not.toContainText("原始数据");
+
+  await preview.getByRole("button", { name: "确认导入" }).click();
+  await expect(page.getByText("导入测试晚餐")).toBeVisible();
+  await expect(page.getByText("导入前的那笔")).toHaveCount(0);
+  await expect(page.getByText("已导入 1 笔记录")).toBeVisible();
+  // 负载里的主题也跟着进来：这是唯一一条「换了主题还留着上一步撤销」的路，撤销快照带上主题就为了它。
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "mist");
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByText("导入前的那笔")).toBeVisible();
+  await expect(page.getByText("导入测试晚餐")).toHaveCount(0);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "celadon");
+});
+
+test("导入与当前账本一模一样的备份：不落盘、不说成功、不给撤销", async ({ page }) => {
+  await addExpense(page, "66.00", "导出再导回的那笔");
+  const exported = await downloadBackup(page, "导出 JSON");
+  // 导回来的就是这份文件本身：里面那句 exportedAt 每次导出都不同，可落盘的那四份状态一个字没变。
+
+  await armStorageWriteCounter(page);
+  const writesBefore = await readStorageWrites(page);
+
+  await pickBackupFile(page, exported.text);
+  await expect(backupRegion(page).getByRole("alert")).toContainText("将导入");
+  await backupRegion(page).getByRole("button", { name: "确认导入" }).click();
+
+  await expect(page.getByText("这份备份与当前账本一模一样，没有导入任何内容")).toBeVisible();
+  await expect(page.getByText(/^已导入/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+  await expect(page.getByText("导出再导回的那笔")).toBeVisible();
+
+  // 断言「没有多出一次落盘」要等 React 把那一次提交走完，否则读得早点晚点都一样。
+  await page.waitForTimeout(250);
+  expect(await readStorageWrites(page)).toBe(writesBefore);
+
+  // 反向对照：同一份文件改掉一笔金额再导一次，这个计数器就看见了——上面那句「一次都没多」不是空断言。
+  const changed = JSON.parse(exported.text) as { records: Array<{ amount: number }> };
+  changed.records[0].amount += 1;
+  await pickBackupFile(page, JSON.stringify(changed));
+  await backupRegion(page).getByRole("button", { name: "确认导入" }).click();
+  await expect(page.getByText(/^已导入/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();
+  await expect.poll(() => readStorageWrites(page)).toBeGreaterThan(writesBefore);
+});
+
+test("降级视图下导入：先说清覆盖的是保留下来的原始数据，取消则一个字不动", async ({ page }) => {
+  const readStored = () => page.evaluate(() => localStorage.getItem("pocket-ledger.v1"));
+
+  const poisoned = "null";
+  await page.addInitScript((raw) => {
+    localStorage.setItem("pocket-ledger.v1", raw);
+  }, poisoned);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
+
+  const backup = JSON.stringify({
+    records: [
+      {
+        id: "imported-1",
+        type: "expense",
+        amount: 18.88,
+        category: "餐饮",
+        date: todayKey(),
+        note: "降级视图导进来的那笔",
+        createdAt: 1,
+      },
+    ],
+    budgets: {},
+    theme: "celadon",
+    categories: [],
+  });
+
+  await pickBackupFile(page, backup);
+  const preview = backupRegion(page).getByRole("alert");
+  await expect(preview).toContainText("将导入 1 笔记录、0 个预算");
+  await expect(preview).toContainText(
+    "确认导入会覆盖系统保留的那份无法读取的原始数据，覆盖后无法找回。",
+  );
+
+  await backupRegion(page).getByRole("button", { name: "取消" }).click();
+  await expect(preview).toHaveCount(0);
+  // 没按下确认，那句「系统不会自动覆盖原始数据」就还是真话。
+  await expect(readStored()).resolves.toBe(poisoned);
+  await expect(page.getByRole("status").filter({ hasText: "安全恢复视图" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+
+  // 反向对照：同一份文件真确认下去，警告里说的覆盖当场发生——它不是写在界面上的装饰。
+  await pickBackupFile(page, backup);
+  await backupRegion(page).getByRole("button", { name: "确认导入" }).click();
+  await expect(page.getByText("降级视图导进来的那笔")).toBeVisible();
+  await expect(readStored()).resolves.not.toBe(poisoned);
+  await expect(page.getByText(/安全恢复视图/)).toHaveCount(0);
+  // 上面那句「取消时不给撤销」也因此不是空断言：这一步真留下了撤销。
+  await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();
+});
+
+test("格式无效的备份文件只说一句无效，账本与提示外的界面都不动", async ({ page }) => {
+  await addExpense(page, "33.00", "不该被导入动到的一笔");
+  const storedBefore = await page.evaluate(() => localStorage.getItem("pocket-ledger.v1"));
+
+  // 读不出内容的、内容不是账本的、缺 records 的：三样都只能换来同一句话。
+  for (const content of ["{not json", "[]", '{"budgets":{"餐饮":100}}']) {
+    await pickBackupFile(page, content);
+    await expect(page.getByText("备份文件格式无效，请重新导出")).toBeVisible();
+    await expect(backupRegion(page).getByRole("alert")).toHaveCount(0);
+  }
+
+  // 反向对照：同一颗按钮换一份读得懂的文件，预览就在那里——上面那句「没有预览」不是定位器空转。
+  await pickBackupFile(
+    page,
+    JSON.stringify({
+      records: [
+        {
+          id: "valid-1",
+          type: "expense",
+          amount: 6,
+          category: "餐饮",
+          date: todayKey(),
+          note: "读得懂的那份",
+          createdAt: 1,
+        },
+      ],
+      budgets: {},
+    }),
+  );
+  await expect(backupRegion(page).getByRole("alert")).toContainText("将导入 1 笔记录");
+  await backupRegion(page).getByRole("button", { name: "取消" }).click();
+
+  await expect(page.getByText("不该被导入动到的一笔")).toBeVisible();
+  await expect(page.getByRole("button", { name: "撤销" })).toHaveCount(0);
+  await expect(page.evaluate(() => localStorage.getItem("pocket-ledger.v1"))).resolves.toBe(
+    storedBefore,
+  );
+});
+
+test("带着关键词导入内容相同的备份：重置的是这一屏，不是盘里那份原始数据", async ({ page }) => {
+  const readStored = () => page.evaluate(() => localStorage.getItem("pocket-ledger.v1"));
+
+  const poisoned = "null";
+  await page.addInitScript((raw) => {
+    localStorage.setItem("pocket-ledger.v1", raw);
+  }, poisoned);
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "本月概览" })).toBeVisible();
+
+  // 这份文件和降级视图读出来的状态一模一样：没有记录、没有预算、主题与内置分类都是规范那套。
+  await pickBackupFile(page, '{"records":[]}');
+  const keyword = page.locator("#filter-keyword");
+  await keyword.fill("房租");
+  await expect(backupRegion(page).getByRole("alert")).toContainText("将导入 0 笔记录");
+
+  await backupRegion(page).getByRole("button", { name: "确认导入" }).click();
+  // 关键词被这一步清掉了，所以它是一次真改动、值得留一步撤销；但它一个字都没往盘里写，
+  // 也就没有资格放行降级状态——解析出来的对象每次都是新的，比内容而不是比引用才拦得住这一笔。
+  await expect(keyword).toHaveValue("");
+  await expect(readStored()).resolves.toBe(poisoned);
+  await expect(page.getByRole("status").filter({ hasText: "安全恢复视图" })).toBeVisible();
+
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(keyword).toHaveValue("房租");
+  await expect(readStored()).resolves.toBe(poisoned);
+
+  // 反向对照：同一颗按钮换一份真有内容的文件，原始数据当场被盖掉——上面那两句「还是 null」不是死局。
+  await pickBackupFile(
+    page,
+    JSON.stringify({
+      records: [
+        {
+          id: "real-1",
+          type: "expense",
+          amount: 9,
+          category: "餐饮",
+          date: todayKey(),
+          note: "真的换了账本的那笔",
+          createdAt: 1,
+        },
+      ],
+      budgets: {},
+    }),
+  );
+  await backupRegion(page).getByRole("button", { name: "确认导入" }).click();
+  await expect(page.getByText("真的换了账本的那笔")).toBeVisible();
+  await expect(readStored()).resolves.not.toBe(poisoned);
 });
