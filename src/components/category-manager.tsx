@@ -15,8 +15,9 @@ import {
 } from "@/components/ui/select";
 import { CircleAlertIcon, PencilIcon, PowerIcon, PowerOffIcon, Trash2Icon } from "lucide-react";
 import { MAX_CATEGORY_NAME_LENGTH, type DeleteCategoryFailure } from "@/src/lib/categories";
-import { notifyChange, type LedgerApi } from "@/src/hooks/use-ledger";
+import { type LedgerApi } from "@/src/hooks/use-ledger";
 import { type CategoryDefinition, type RecordType } from "@/src/lib/ledger";
+import { notifyChange } from "@/src/lib/ledger-toast";
 
 const TYPE_LABEL: Record<RecordType, string> = { expense: "支出", income: "收入" };
 

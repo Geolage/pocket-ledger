@@ -13,8 +13,9 @@ import { RecordDialog } from "@/src/components/record-dialog";
 import { SettingsSection } from "@/src/components/settings-section";
 import { SummaryCards } from "@/src/components/summary-cards";
 import { useActiveSection } from "@/src/hooks/use-active-section";
-import { notifyChange, UNDO_WINDOW_SECONDS, useLedger } from "@/src/hooks/use-ledger";
+import { useLedger } from "@/src/hooks/use-ledger";
 import { type LedgerRecord, type RecordDraft, describeRecord, monthLabel } from "@/src/lib/ledger";
+import { notifyChange, UNDO_WINDOW_SECONDS } from "@/src/lib/ledger-toast";
 
 /**
  * 撤销窗口只在提示还看得见的那段时间里成立，而且下一次改动就会把它结束掉。
